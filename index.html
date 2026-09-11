@@ -3,61 +3,78 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Meena Orchid Festival Portal</title>
+  <title>Meena Orchid Festival Transparency Portal</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div><div class="eyebrow">MEENA ORCHID</div><h1>Festival Transparency Portal</h1><p>Collections, expenses, schedules and supporting documents in one place.</p></div>
-    <div class="auth-actions"><span id="userBadge" class="badge hidden"></span><button id="loginBtn" class="secondary">Login / Sign up</button><button id="logoutBtn" class="secondary hidden">Logout</button></div>
-  </header>
-  <main class="container">
-    <section id="authPanel" class="card hidden">
-      <div class="tabs"><button class="tab active" data-auth="login">Login</button><button class="tab" data-auth="signup">Sign up</button></div>
-      <form id="authForm" class="grid-form">
-        <label id="nameWrap" class="hidden">Full name<input id="fullName" autocomplete="name" /></label>
-        <label>Email<input id="email" type="email" required autocomplete="email" /></label>
-        <label>Password<input id="password" type="password" required minlength="6" autocomplete="current-password" /></label>
-        <button class="primary" type="submit" id="authSubmit">Login</button>
-      </form>
-      <p id="authMessage" class="muted"></p>
-    </section>
+<header class="topbar">
+  <div><div class="eyebrow">MEENA ORCHID · 2026</div><h1>Festival Transparency Portal</h1><p>Collections, expenses, puja schedules and supporting documents.</p></div>
+  <div class="auth-actions"><span id="userBadge" class="badge hidden"></span><button id="loginBtn" class="secondary">Committee Login</button><button id="logoutBtn" class="secondary hidden">Logout</button></div>
+</header>
 
+<main class="container">
+  <section id="authPanel" class="card hidden">
+    <div class="section-head"><div><h2>Committee Login</h2><p class="muted">Only the authorized committee account can add or edit records.</p></div></div>
+    <form id="authForm" class="login-form">
+      <label>User name<input id="loginUser" value="Tapas" autocomplete="username" required /></label>
+      <label>Password<input id="password" type="password" value="Kanpsack" autocomplete="current-password" required /></label>
+      <button class="primary" type="submit">Login</button>
+    </form>
+    <p id="authMessage" class="muted"></p>
+  </section>
+
+  <nav class="tabs main-tabs" aria-label="Portal sections">
+    <button class="tab active" data-page="dashboard">Dashboard</button>
+    <button class="tab" data-page="collections">Collections</button>
+    <button class="tab" data-page="expenses">Expenses</button>
+    <button class="tab" data-page="schedule">Puja Schedule</button>
+    <button class="tab hidden" id="adminTab" data-page="admin">Committee Admin</button>
+  </nav>
+
+  <section id="page-dashboard" class="page active">
     <section class="hero-grid">
-      <div class="card hero"><span class="pill">2026</span><h2>Clear records. Clear balance.</h2><p>Residents can view festival-wise collections and expenses. Authorized committee members can maintain the records.</p></div>
+      <div class="card hero"><span class="pill">136 FLATS</span><h2>Clear records. Clear balance.</h2><p>Residents can see how much was collected, where money was spent and the current festival fund.</p></div>
       <div class="card stat"><span>Total collected</span><strong id="totalCollected">₹0</strong></div>
       <div class="card stat"><span>Total expenses</span><strong id="totalExpenses">₹0</strong></div>
-      <div class="card stat"><span>Overall balance</span><strong id="totalBalance">₹0</strong></div>
+      <div class="card stat"><span>Remaining fund</span><strong id="totalBalance">₹0</strong></div>
     </section>
-
-    <section class="card">
-      <div class="section-head"><div><h2>Festival-wise financial summary</h2><p class="muted">Live data from Supabase</p></div><button id="refreshBtn" class="secondary">Refresh</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Festival</th><th>Collected</th><th>Expenses</th><th>Balance</th></tr></thead><tbody id="summaryBody"></tbody></table></div>
+    <section class="dashboard-grid">
+      <div class="card"><div class="section-head"><div><h2>Contribution status</h2><p class="muted">Unique flats that have at least one paid contribution.</p></div></div><div class="contribution"><strong id="contributorCount">0 / 136</strong><span id="contributorPercent">0%</span></div><div class="progress"><span id="contributorProgress"></span></div></div>
+      <div class="card"><div class="section-head"><div><h2>Festival-wise summary</h2><p class="muted">Live financial position.</p></div><button id="refreshBtn" class="secondary">Refresh</button></div><div class="table-wrap"><table><thead><tr><th>Festival</th><th>Collected</th><th>Expenses</th><th>Balance</th></tr></thead><tbody id="summaryBody"></tbody></table></div></div>
     </section>
+  </section>
 
-    <section class="card">
-      <div class="section-head"><div><h2>Flat-wise collections</h2><p class="muted">Search by block, flat or member.</p></div><input id="searchInput" class="search" placeholder="Search…" /></div>
-      <div class="table-wrap"><table><thead><tr><th>Festival</th><th>Block</th><th>Flat</th><th>Member</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead><tbody id="collectionBody"></tbody></table></div>
+  <section id="page-collections" class="page hidden">
+    <section class="card"><div class="section-head"><div><h2>Collection List</h2><p class="muted">Flat-wise contribution records and receipt files.</p></div></div>
+      <div class="filters"><input id="collectionSearch" class="search" placeholder="Search block, flat or name" /><select id="collectionFestivalFilter"><option value="">All festivals</option></select><select id="collectionTypeFilter"><option value="">All collection types</option><option>Festival Contribution</option><option>Donation</option><option>Sponsorship</option><option>Other</option></select><select id="collectionStatusFilter"><option value="">All status</option><option>Paid</option><option>Cancelled</option></select></div>
+      <div class="table-wrap"><table><thead><tr><th>Sr No</th><th>Date</th><th>Block</th><th>Flat</th><th>Name</th><th>Amount</th><th>Status</th><th>Receipt File</th><th>Collection Type</th></tr></thead><tbody id="collectionBody"></tbody></table></div>
     </section>
+  </section>
 
-    <section class="card">
-      <div class="section-head"><div><h2>Expenses & bills</h2><p class="muted">Bills can be linked from Supabase Storage.</p></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Festival</th><th>Date</th><th>Expense</th><th>Amount</th><th>Bill</th></tr></thead><tbody id="expenseBody"></tbody></table></div>
+  <section id="page-expenses" class="page hidden">
+    <section class="card"><div class="section-head"><div><h2>Expenses & Bills</h2><p class="muted">Expenses are separated by festival plus a main “Other Expenses” category.</p></div></div>
+      <div class="filters"><input id="expenseSearch" class="search" placeholder="Search expense name" /><select id="expenseFestivalFilter"><option value="">All categories</option></select></div>
+      <div id="expenseGroups"></div>
     </section>
+  </section>
 
-    <section id="adminPanel" class="card hidden">
-      <div class="section-head"><div><h2>Committee workspace</h2><p class="muted">Only staff roles can add or change financial records.</p></div><span id="roleBadge" class="pill"></span></div>
+  <section id="page-schedule" class="page hidden">
+    <section class="card"><div class="section-head"><div><h2>Puja Schedule</h2><p class="muted">Puja time, bhog distribution and other society programme timings.</p></div></div><div class="table-wrap"><table><thead><tr><th>Festival</th><th>Date</th><th>Time</th><th>Programme</th><th>Details</th></tr></thead><tbody id="scheduleBody"></tbody></table></div></section>
+  </section>
+
+  <section id="page-admin" class="page hidden">
+    <section id="adminPanel" class="card"><div class="section-head"><div><h2>Committee Admin</h2><p class="muted">Authorized account only. Add members, collections, expenses and schedule entries.</p></div><span id="roleBadge" class="pill"></span></div>
       <div class="admin-grid">
         <form id="memberForm" class="mini-form"><h3>Add flat/member</h3><input id="memberBlock" placeholder="Block" required /><input id="memberFlat" placeholder="Flat no." required /><input id="memberName" placeholder="Owner/member name" required /><button class="primary">Save member</button></form>
-        <form id="festivalForm" class="mini-form"><h3>Add festival</h3><input id="festivalName" placeholder="Festival name" required /><input id="festivalOrder" type="number" value="10" placeholder="Sort order" /><button class="primary">Save festival</button></form>
-        <form id="collectionForm" class="mini-form"><h3>Add collection</h3><select id="collectionFestival" required></select><select id="collectionMember" required></select><input id="collectionAmount" type="number" step="0.01" placeholder="Amount" required /><input id="collectionDate" type="date" required /><select id="collectionStatus"><option>Paid</option><option>Cancelled</option></select><button class="primary">Save collection</button></form>
-        <form id="expenseForm" class="mini-form"><h3>Add expense</h3><select id="expenseFestival" required></select><input id="expenseDate" type="date" required /><input id="expenseName" placeholder="Expense name" required /><input id="expenseAmount" type="number" step="0.01" placeholder="Total amount" required /><input id="expenseBill" placeholder="Bill URL (optional)" /><button class="primary">Save expense</button></form>
-      </div>
-      <p id="adminMessage" class="muted"></p>
+        <form id="collectionForm" class="mini-form"><h3>Add collection</h3><select id="collectionFestival" required></select><select id="collectionMember" required></select><input id="collectionAmount" type="number" step="0.01" placeholder="Amount" required /><input id="collectionDate" type="date" required /><select id="collectionStatus"><option>Paid</option><option>Cancelled</option></select><select id="collectionType"><option>Festival Contribution</option><option>Donation</option><option>Sponsorship</option><option>Other</option></select><input id="collectionReceipt" placeholder="Receipt file URL (optional)" /><button class="primary">Save collection</button></form>
+        <form id="expenseForm" class="mini-form"><h3>Add expense</h3><select id="expenseFestival" required></select><input id="expenseDate" type="date" required /><input id="expenseName" placeholder="Expense name" required /><input id="expenseAmount" type="number" step="0.01" placeholder="Total amount" required /><input id="expenseAdvance" type="number" step="0.01" value="0" placeholder="Advance amount" /><input id="expenseBill" placeholder="Bill / receipt file URL (optional)" /><button class="primary">Save expense</button></form>
+        <form id="scheduleForm" class="mini-form"><h3>Add puja schedule</h3><select id="scheduleFestival" required></select><input id="scheduleDate" type="date" /><input id="scheduleTime" placeholder="e.g. 10:00 AM" /><input id="scheduleTitle" placeholder="Puja / Bhog / Programme" required /><textarea id="scheduleDescription" placeholder="Details"></textarea><input id="scheduleOrder" type="number" value="10" /><button class="primary">Save schedule</button></form>
+      </div><p id="adminMessage" class="muted"></p>
     </section>
+  </section>
 
-    <footer>Meena Orchid · Sector V, Kolkata · Financial transparency portal</footer>
-  </main>
-  <script type="module" src="app.js"></script>
+  <footer>Meena Orchid · Mahisbathan, Sector V, Kolkata · Financial transparency portal</footer>
+</main>
+<script type="module" src="app.js"></script>
 </body>
 </html>
