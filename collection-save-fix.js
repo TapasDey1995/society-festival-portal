@@ -8,7 +8,6 @@ const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
 
 const $=id=>document.getElementById(id);
 const alertError=msg=>{alert(msg);console.error('[Collection]',msg);};
-
 function staff(role){return ['admin','treasurer','committee'].includes(String(role||'').toLowerCase());}
 function slug(name){return String(name||'file').replace(/[^a-zA-Z0-9._-]+/g,'-').replace(/-+/g,'-').slice(0,120);}
 
@@ -54,23 +53,17 @@ async function saveCollection(form){
   if(!Number.isFinite(amount) || amount<=0) return alertError('Please enter a valid collection amount greater than 0.');
   if(!date) return alertError('Please select the collection date.');
 
-  const profile=await getStaffProfile();
-  if(profile.society_id!==SOCIETY_ID) throw new Error('This account is not linked to Meena Orchid.');
-
-  const {data:member,error:memberError}=await supabase.from('members').select('id,name,block_no,flat_no').eq('society_id',SOCIETY_ID).ilike('block_no',block).ilike('flat_no',flat).maybeSingle();
-  if(memberError) throw memberError;
-  if(!member) throw new Error(`No member found for Block ${block}, Flat ${flat}. Please check the block/flat number.`);
-
+  await getStaffProfile();
   const receiptUrl=await uploadReceipt(file);
   const payload={
     festival_id:festivalId,
-    member_id:member.id,
+    member_id:null,
     collection_type:collectionType,
     collection_date:date,
     amount,
     status,
     receipt_url:receiptUrl,
-    notes:name||member.name||null,
+    notes:[name,`Block ${block}`,`Flat ${flat}`].filter(Boolean).join(' | '),
     payment_mode:mode,
     receipt_no:receiptNo||null,
     transaction_id:transactionId||null,
@@ -101,10 +94,10 @@ function setup(){
   form.addEventListener('submit',async e=>{
     e.preventDefault();
     const button=form.querySelector('button[type="submit"]');
-    if(button) {button.disabled=true;button.textContent='Saving...';}
-    try { await saveCollection(form); }
-    catch(error) { alertError(error?.message||String(error)); }
-    finally { if(button){button.disabled=false;button.textContent='Save Collection';} }
+    if(button){button.disabled=true;button.textContent='Saving...';}
+    try{await saveCollection(form);}
+    catch(error){alertError(error?.message||String(error));}
+    finally{if(button){button.disabled=false;button.textContent='Save Collection';}}
   });
 }
 
