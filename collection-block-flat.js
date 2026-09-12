@@ -27,3 +27,5 @@ document.addEventListener('submit',event=>{
 
 // Load the committee-only receipt upload/replace controls for existing collection rows.
 import('./collection-receipt-upload.js');
+// Dedicated collection save handler. It replaces the older form listener safely.
+import('./collection-save-fix.js?v=20260913');
