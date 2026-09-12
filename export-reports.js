@@ -18,15 +18,18 @@ function createExportButtons(){
   const collectionPanel=document.querySelector('#page-collections .quick-actions');
   const expensePanel=document.querySelector('#page-expenses .quick-actions');
   if(collectionPanel&&!$('downloadCollectionsExcel')){const b=makeButton('downloadCollectionsExcel','Download Excel');collectionPanel.insertBefore(b,collectionPanel.firstChild);b.addEventListener('click',downloadCollections);}
-  if(expensePanel&&!$('downloadExpensesExcel')){const b=makeButton('downloadExpensesExcel','Download Full Expense Report');expensePanel.insertBefore(b,expensePanel.firstChild);b.addEventListener('click',downloadExpenses);}
+  if(expensePanel&&!$('downloadExpensesExcel')){const b=makeButton('downloadExpensesExcel','Download Expense Excel');expensePanel.insertBefore(b,expensePanel.firstChild);b.addEventListener('click',downloadExpenses);}
 }
 async function ensureLoggedIn(){const {data:{session}}=await supabase.auth.getSession();if(!session){alert('Please login first to download reports.');return false;}return true;}
 function styleWorkbook(ws,cols){ws['!cols']=cols.map(wch=>({wch}));}
 function setHyperlink(ws,cell,url){if(url&&ws[cell])ws[cell].l={Target:url,Tooltip:'Open supporting document'};}
+function titleStyle(ws,lastCol){
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:lastCol}}];
+  if(ws.A1)ws.A1.s={font:{bold:true,sz:16},alignment:{horizontal:'center'}};
+}
 
 async function downloadCollections(){
   if(!await ensureLoggedIn())return;
-  // IMPORTANT: collections has no society_id column. Do not filter it by society_id.
   const [{data,error},{data:members,error:memberError},{data:festivals,error:festivalError}]=await Promise.all([
     supabase.from('collections').select('*').order('collection_date',{ascending:true}).order('created_at',{ascending:true}),
     supabase.from('members').select('id,block_no,flat_no,name').eq('society_id',SOCIETY_ID),
@@ -48,27 +51,72 @@ async function downloadCollections(){
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'All Collections');XLSX.writeFile(wb,'Meena_Orchid_All_Collections.xlsx');
 }
 
-async function downloadExpenses(){
-  if(!await ensureLoggedIn())return;
-  // IMPORTANT: expenses has no society_id column. Scope through society festivals only.
-  const [{data,error},{data:festivals,error:festivalError}]=await Promise.all([
-    supabase.from('expenses').select('*').order('expense_date',{ascending:true}).order('created_at',{ascending:true}),
-    supabase.from('festivals').select('id,name').eq('society_id',SOCIETY_ID)
-  ]);
-  if(error){alert('Unable to load expense records: '+error.message);return;}
-  if(festivalError){alert('Unable to load society festivals: '+festivalError.message);return;}
-  const fm=new Map((festivals||[]).map(x=>[x.id,x.name]));
-  const festivalIds=new Set((festivals||[]).map(x=>x.id));
-  const source=(data||[]).filter(x=>!x.festival_id||festivalIds.has(x.festival_id));
+function buildExpenseSheet(name,source){
   const total=source.reduce((a,x)=>a+amount(x.total_amount),0);
   const done=source.reduce((a,x)=>a+expenseNumbers(x).done,0);
   const remaining=source.reduce((a,x)=>a+expenseNumbers(x).remaining,0);
-  const rows=[['Meena Orchid Festival Transparency Portal — Full Expense Report'],['Generated Date',new Date().toLocaleString('en-IN')],['Total Expenses',total],['Expenses Done',done],['Remaining',remaining],[],['Sr No','Festival / Category','Date','Expense Name','Total Amount','Advance','Expenses Done','Remaining','Status','Bill / Receipt']];
+  const rows=[
+    [name+' — Expense Report'],
+    ['Total Expenses',total],
+    ['Expenses Done',done],
+    ['Remaining',remaining],
+    [],
+    ['Sr No','Date','Expense Name','Total Amount','Advance','Expenses Done','Remaining','Status','Bill / Receipt']
+  ];
   const links=[];
-  source.forEach((x,i)=>{const n=expenseNumbers(x);rows.push([i+1,fm.get(x.festival_id)||'',date(x.expense_date),x.expense_name||'',amount(x.total_amount),amount(x.advance_amount),n.done,n.remaining,x.expense_status||'Pending',x.bill_url?'Open bill':'']);if(x.bill_url)links.push({row:rows.length,url:x.bill_url});});
-  if(!source.length)rows.push(['','No expense records','','','','','','','','']);
-  const ws=XLSX.utils.aoa_to_sheet(rows);styleWorkbook(ws,[8,24,14,36,16,16,18,16,14,65]);links.forEach(x=>setHyperlink(ws,`J${x.row}`,x.url));ws['!freeze']={xSplit:0,ySplit:7};
-  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Expense Report');XLSX.writeFile(wb,'Meena_Orchid_Full_Expense_Report.xlsx');
+  source.forEach((x,i)=>{
+    const n=expenseNumbers(x);
+    rows.push([i+1,date(x.expense_date),x.expense_name||'',amount(x.total_amount),amount(x.advance_amount),n.done,n.remaining,x.expense_status||'Pending',x.bill_url?'Open bill':'']);
+    if(x.bill_url)links.push({row:rows.length,url:x.bill_url});
+  });
+  if(!source.length)rows.push(['','No expenses recorded','','','','','','','']);
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  styleWorkbook(ws,[8,14,38,18,16,18,16,14,65]);
+  titleStyle(ws,8);
+  links.forEach(x=>setHyperlink(ws,`I${x.row}`,x.url));
+  ws['!freeze']={xSplit:0,ySplit:6};
+  return ws;
+}
+
+async function downloadExpenses(){
+  if(!await ensureLoggedIn())return;
+  const [{data,error},{data:festivals,error:festivalError},{data:collections,error:collectionError}]=await Promise.all([
+    supabase.from('expenses').select('*').order('expense_date',{ascending:true}).order('created_at',{ascending:true}),
+    supabase.from('festivals').select('id,name,sort_order').eq('society_id',SOCIETY_ID).order('sort_order',{ascending:true}),
+    supabase.from('collections').select('*').order('collection_date',{ascending:true})
+  ]);
+  if(error){alert('Unable to load expense records: '+error.message);return;}
+  if(festivalError){alert('Unable to load society festivals: '+festivalError.message);return;}
+  if(collectionError){alert('Unable to load collection records: '+collectionError.message);return;}
+
+  const festivalList=['15th Aug','Ganesh Puja','Durga Puja','Lakshmi Puja'];
+  const festivalMap=new Map((festivals||[]).map(x=>[x.name,x.id]));
+  const festivalIdMap=new Map((festivals||[]).map(x=>[x.id,x.name]));
+  const source=(data||[]).filter(x=>x.festival_id && festivalIdMap.has(x.festival_id));
+  const byFestival={};
+  festivalList.forEach(name=>{byFestival[name]=source.filter(x=>festivalIdMap.get(x.festival_id)===name);});
+
+  const totalCollection=(collections||[]).reduce((sum,x)=>sum+(String(x.status||'').toLowerCase()==='paid'?amount(x.amount):0),0);
+  const totalExpenses=source.reduce((sum,x)=>sum+amount(x.total_amount),0);
+  const remainingFund=totalCollection-totalExpenses;
+
+  const wb=XLSX.utils.book_new();
+  const mainRows=[
+    ['MEENA ORCHID FESTIVAL TRANSPARENCY PORTAL'],
+    ['Financial Summary'],
+    [],
+    ['Total Collection',totalCollection],
+    ['Total Expenses — All 4 Festivals',totalExpenses],
+    ['Remaining Fund',remainingFund]
+  ];
+  const main=XLSX.utils.aoa_to_sheet(mainRows);
+  styleWorkbook(main,[42,24]);
+  main['!merges']=[{s:{r:0,c:0},e:{r:0,c:1}},{s:{r:1,c:0},e:{r:1,c:1}}];
+  main['!freeze']={xSplit:0,ySplit:3};
+  XLSX.utils.book_append_sheet(wb,main,'Main Summary');
+
+  festivalList.forEach(name=>XLSX.utils.book_append_sheet(wb,buildExpenseSheet(name,byFestival[name]),name.slice(0,31)));
+  XLSX.writeFile(wb,'Meena_Orchid_Expense_Report.xlsx');
 }
 function updateExportVisibility(){supabase.auth.getSession().then(({data:{session}})=>{createExportButtons();document.querySelectorAll('[data-export-button]').forEach(b=>b.classList.toggle('hidden',!session));});}
 function init(){createExportButtons();updateExportVisibility();supabase.auth.onAuthStateChange(()=>setTimeout(updateExportVisibility,100));}
