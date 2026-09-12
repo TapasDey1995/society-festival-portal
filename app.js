@@ -9,9 +9,7 @@ let festivals=[],members=[],collections=[],expenses=[],schedules=[],profile=null
 
 function expenseNumbers(x){
   const total=Number(x.total_amount||0),advance=Number(x.advance_amount||0),status=x.expense_status||'Pending';
-  return status==='Clear'
-    ? {paid:total,remaining:0}
-    : {paid:advance,remaining:Math.max(0,total-advance)};
+  return status==='Clear' ? {paid:total,remaining:0} : {paid:advance,remaining:Math.max(0,total-advance)};
 }
 
 async function load(){
@@ -24,14 +22,20 @@ async function load(){
       supabase.from('puja_schedules').select('*').order('schedule_date').order('sort_order')
     ]);
 
-    const firstError=[f,m,c,e,s].find(r=>r.error);
-    if(firstError?.error) throw firstError.error;
+    // Collections are the critical public data. Do not let an unrelated query
+    // prevent the collection table from rendering.
+    if(c.error) throw c.error;
 
-    festivals=f.data||[];
-    members=m.data||[];
+    if(f.error) console.error('Festivals load error:',f.error);
+    if(m.error) console.error('Members load error:',m.error);
+    if(e.error) console.error('Expenses load error:',e.error);
+    if(s.error) console.error('Schedule load error:',s.error);
+
+    festivals=f.error ? [] : (f.data||[]);
+    members=m.error ? [] : (m.data||[]);
     collections=c.data||[];
-    expenses=e.data||[];
-    schedules=s.data||[];
+    expenses=e.error ? [] : (e.data||[]);
+    schedules=s.error ? [] : (s.data||[]);
 
     const festivalMap=new Map(festivals.map(x=>[x.id,x]));
     const memberMap=new Map(members.map(x=>[x.id,x]));
@@ -52,6 +56,7 @@ async function load(){
       festivals:festivalMap.get(x.festival_id)||null
     }));
 
+    // Render collections even if another optional dataset failed.
     renderAll();
     fillSelects();
 
@@ -74,26 +79,14 @@ function renderAll(){
 }
 
 function renderDashboard(){
-  const totalCollected=collections
-    .filter(x=>x.status!=='Cancelled')
-    .reduce((a,x)=>a+Number(x.amount||0),0);
-
-  const totalPaid=expenses
-    .reduce((a,x)=>a+expenseNumbers(x).paid,0);
-
-  const totalRemaining=expenses
-    .reduce((a,x)=>a+expenseNumbers(x).remaining,0);
+  const totalCollected=collections.filter(x=>x.status!=='Cancelled').reduce((a,x)=>a+Number(x.amount||0),0);
+  const totalPaid=expenses.reduce((a,x)=>a+expenseNumbers(x).paid,0);
 
   $('totalCollected').textContent=money(totalCollected);
   $('totalExpenses').textContent=money(totalPaid);
   $('totalBalance').textContent=money(totalCollected-totalPaid);
 
-  const paidFlats=new Set(
-    collections
-      .filter(x=>x.status==='Paid'&&x.members?.block_no&&x.members?.flat_no)
-      .map(x=>`${x.members.block_no}-${x.members.flat_no}`)
-  );
-
+  const paidFlats=new Set(collections.filter(x=>x.status==='Paid'&&x.members?.block_no&&x.members?.flat_no).map(x=>`${x.members.block_no}-${x.members.flat_no}`));
   const count=paidFlats.size;
   const pct=Math.min(100,Math.round(count/TOTAL_FLATS*100));
 
@@ -102,25 +95,11 @@ function renderDashboard(){
   $('contributorProgress').style.width=`${pct}%`;
 
   const groups=festivals.map(f=>{
-    const col=collections
-      .filter(x=>x.festival_id===f.id&&x.status!=='Cancelled')
-      .reduce((a,x)=>a+Number(x.amount||0),0);
-
+    const col=collections.filter(x=>x.festival_id===f.id&&x.status!=='Cancelled').reduce((a,x)=>a+Number(x.amount||0),0);
     const festivalExpenses=expenses.filter(x=>x.festival_id===f.id);
-
-    const paid=festivalExpenses
-      .reduce((a,x)=>a+expenseNumbers(x).paid,0);
-
-    const remaining=festivalExpenses
-      .reduce((a,x)=>a+expenseNumbers(x).remaining,0);
-
-    return {
-      name:f.name,
-      total_collection:col,
-      total_expense:paid,
-      remaining,
-      balance:col-paid
-    };
+    const paid=festivalExpenses.reduce((a,x)=>a+expenseNumbers(x).paid,0);
+    const remaining=festivalExpenses.reduce((a,x)=>a+expenseNumbers(x).remaining,0);
+    return {name:f.name,total_collection:col,total_expense:paid,remaining,balance:col-paid};
   });
 
   $('summaryBody').innerHTML=groups.map(r=>`
@@ -135,38 +114,34 @@ function renderDashboard(){
 }
 
 function renderCollections(){
-  const q=($('collectionSearch').value||'').toLowerCase(),
-        festival=$('collectionFestivalFilter').value,
-        type=$('collectionTypeFilter').value,
-        mode=$('collectionModeFilter').value,
-        status=$('collectionStatusFilter').value;
+  const search=$('collectionSearch');
+  const festivalFilter=$('collectionFestivalFilter');
+  const typeFilter=$('collectionTypeFilter');
+  const modeFilter=$('collectionModeFilter');
+  const statusFilter=$('collectionStatusFilter');
+  const body=$('collectionBody');
+  const actionHead=$('collectionActionHead');
+
+  // Guard against rendering before the page DOM is available.
+  if(!search||!festivalFilter||!typeFilter||!modeFilter||!statusFilter||!body||!actionHead)return;
+
+  const q=(search.value||'').trim().toLowerCase();
+  const festival=festivalFilter.value;
+  const type=typeFilter.value;
+  const mode=modeFilter.value;
+  const status=statusFilter.value;
 
   const rows=collections.filter(x=>{
-    const text=`
-      ${x.festivals?.name||''}
-      ${x.members?.block_no||''}
-      ${x.members?.flat_no||''}
-      ${x.members?.name||''}
-      ${x.receipt_no||''}
-    `.toLowerCase();
-
-    return (
-  (!q||text.includes(q))&&
-  (!festival||x.festival_id===festival)&&
-  (!type||x.collection_type===type)&&
-  (!mode||x.payment_mode===mode)&&
-  (!status||x.status===status)
-);
+    const text=`${x.festivals?.name||''} ${x.members?.block_no||''} ${x.members?.flat_no||''} ${x.members?.name||''} ${x.receipt_no||''}`.toLowerCase();
+    return (!q||text.includes(q))&&(!festival||x.festival_id===festival)&&(!type||x.collection_type===type)&&(!mode||x.payment_mode===mode)&&(!status||x.status===status);
   });
 
   const staff=!!profile&&['admin','treasurer','committee'].includes(profile.role);
+  actionHead.classList.toggle('hidden',!staff);
 
-  $('collectionActionHead').classList.toggle('hidden',!staff);
-
-  $('collectionBody').innerHTML=rows.map((x,i)=>{
+  body.innerHTML=rows.map((x,i)=>{
     const receipt=x.receipt_url||x.file_upload_url;
     const download=x.receipt_download_url;
-
     return `
       <tr>
         <td>${i+1}</td>
@@ -176,508 +151,150 @@ function renderCollections(){
         <td>${esc(x.members?.name||x.notes||'')}</td>
         <td>${money(x.amount)}</td>
         <td>${esc(x.payment_mode||'')}</td>
-        <td>
-          <span class="status ${
-            x.status==='Cancelled'
-              ? 'cancelled'
-              : x.status==='Progress'
-                ? 'progress-status'
-                : 'paid'
-          }">
-            ${esc(x.status||'')}
-          </span>
-        </td>
+        <td><span class="status ${x.status==='Cancelled'?'cancelled':x.status==='Progress'?'progress-status':'paid'}">${esc(x.status||'')}</span></td>
         <td>${esc(x.receipt_no||'')}</td>
         <td>${esc(x.transaction_id||'')}</td>
-        <td>
-          ${receipt
-            ? `<a href="${safeUrl(receipt)}" target="_blank" rel="noopener">View file</a>`
-            : '—'}
-        </td>
+        <td>${receipt?`<a href="${safeUrl(receipt)}" target="_blank" rel="noopener">View file</a>`:'—'}</td>
         <td>${esc(x.collection_type||'')}</td>
-        <td>
-          ${download
-            ? `<a href="${safeUrl(download)}" target="_blank" rel="noopener">Download</a>`
-            : '—'}
-        </td>
-        ${staff
-          ? `<td><button class="secondary edit-collection" data-id="${x.id}">Edit</button></td>`
-          : ''}
+        <td>${download?`<a href="${safeUrl(download)}" target="_blank" rel="noopener">Download</a>`:'—'}</td>
+        ${staff?`<td><button class="secondary edit-collection" data-id="${x.id}">Edit</button></td>`:''}
       </tr>
     `;
   }).join('')||emptyRow(staff?14:13,'No collections match the filters');
 
-  document.querySelectorAll('.edit-collection')
-    .forEach(b=>b.onclick=()=>editCollection(b.dataset.id));
+  document.querySelectorAll('.edit-collection').forEach(b=>b.onclick=()=>editCollection(b.dataset.id));
 }
 
 function renderExpenses(){
-  const q=($('expenseSearch').value||'').toLowerCase(),
-        filter=$('expenseFestivalFilter').value;
-
+  const q=($('expenseSearch').value||'').toLowerCase(),filter=$('expenseFestivalFilter').value;
   const selected=festivals.filter(f=>!filter||f.id===filter);
   const staff=!!profile&&['admin','treasurer','committee'].includes(profile.role);
 
   $('expenseGroups').innerHTML=selected.map(f=>{
-    const rows=expenses.filter(x=>
-      x.festival_id===f.id&&
-      (!q||`${x.expense_name||''} ${f.name}`.toLowerCase().includes(q))
-    );
-
-    const total=rows.reduce(
-      (a,x)=>a+Number(x.total_amount||0),0
-    );
-
-    const paid=rows.reduce(
-      (a,x)=>a+expenseNumbers(x).paid,0
-    );
-
-    const remaining=rows.reduce(
-      (a,x)=>a+expenseNumbers(x).remaining,0
-    );
+    const rows=expenses.filter(x=>x.festival_id===f.id&&(!q||`${x.expense_name||''} ${f.name}`.toLowerCase().includes(q)));
+    const total=rows.reduce((a,x)=>a+Number(x.total_amount||0),0);
+    const paid=rows.reduce((a,x)=>a+expenseNumbers(x).paid,0);
+    const remaining=rows.reduce((a,x)=>a+expenseNumbers(x).remaining,0);
 
     return `
       <div class="expense-group">
-
         <div class="group-head">
           <h3>${esc(f.name)}</h3>
-
-          <div class="expense-totals"
-               style="display:flex;justify-content:space-between;align-items:center;gap:20px;">
-
-            <span>
-              Total Expenses:
-              <strong>${money(total)}</strong>
-            </span>
-
-            <span>
-              Expenses Done:
-              <strong>${money(paid)}</strong>
-            </span>
-
+          <div class="expense-totals" style="display:flex;justify-content:space-between;align-items:center;gap:20px;">
+            <span>Total Expenses: <strong>${money(total)}</strong></span>
+            <span>Expenses Done: <strong>${money(paid)}</strong></span>
           </div>
         </div>
-
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th>Sr No</th>
-                <th>Date</th>
-                <th>Expense Name</th>
-                <th>Total Amount</th>
-                <th>Advance</th>
-                <th>Expenses Done</th>
-                <th>Remaining</th>
-                <th>Status</th>
-                <th>Bill / Receipt File</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              ${
-                rows.map((x,i)=>{
-                  const n=expenseNumbers(x);
-
-                  return `
-                    <tr>
-                      <td>${i+1}</td>
-                      <td>${formatDate(x.expense_date)}</td>
-                      <td>${esc(x.expense_name)}</td>
-                      <td>${money(x.total_amount)}</td>
-                      <td>${money(x.advance_amount)}</td>
-                      <td>${money(n.paid)}</td>
-                      <td>${money(n.remaining)}</td>
-
-                      <td>
-                        ${
-                          staff
-                            ? `
-                              <select class="expense-status" data-id="${x.id}">
-                                <option ${x.expense_status==='Clear'?'selected':''}>Clear</option>
-                                <option ${x.expense_status!=='Clear'?'selected':''}>Pending</option>
-                              </select>
-                            `
-                            : `
-                              <span class="status ${
-                                x.expense_status==='Clear'
-                                  ? 'paid'
-                                  : 'progress-status'
-                              }">
-                                ${esc(x.expense_status||'Pending')}
-                              </span>
-                            `
-                        }
-                      </td>
-
-                      <td>
-                        ${
-                          x.bill_url
-                            ? `<a href="${safeUrl(x.bill_url)}" target="_blank" rel="noopener">View file</a>`
-                            : '—'
-                        }
-                      </td>
-                    </tr>
-                  `;
-                }).join('')||emptyRow(9,'No expenses in this category')
-              }
-            </tbody>
+            <thead><tr>
+              <th>Sr No</th><th>Date</th><th>Expense Name</th><th>Total Amount</th><th>Advance</th><th>Expenses Done</th><th>Remaining</th><th>Status</th><th>Bill / Receipt File</th>
+            </tr></thead>
+            <tbody>${rows.map((x,i)=>{
+              const n=expenseNumbers(x);
+              return `<tr>
+                <td>${i+1}</td><td>${formatDate(x.expense_date)}</td><td>${esc(x.expense_name)}</td>
+                <td>${money(x.total_amount)}</td><td>${money(x.advance_amount)}</td><td>${money(n.paid)}</td><td>${money(n.remaining)}</td>
+                <td>${staff?`<select class="expense-status" data-id="${x.id}"><option ${x.expense_status==='Clear'?'selected':''}>Clear</option><option ${x.expense_status!=='Clear'?'selected':''}>Pending</option></select>`:`<span class="status ${x.expense_status==='Clear'?'paid':'progress-status'}">${esc(x.expense_status||'Pending')}</span>`}</td>
+                <td>${x.bill_url?`<a href="${safeUrl(x.bill_url)}" target="_blank" rel="noopener">View file</a>`:'—'}</td>
+              </tr>`;
+            }).join('')||emptyRow(9,'No expenses in this category')}</tbody>
           </table>
         </div>
-
-      </div>
-    `;
+      </div>`;
   }).join('')||'<p class="muted">No expense categories.</p>';
 
-  document.querySelectorAll('.expense-status')
-    .forEach(s=>s.onchange=()=>updateExpenseStatus(s.dataset.id,s.value));
+  document.querySelectorAll('.expense-status').forEach(s=>s.onchange=()=>updateExpenseStatus(s.dataset.id,s.value));
 }
 
 async function updateExpenseStatus(id,status){
-  const {error}=await supabase
-    .from('expenses')
-    .update({
-      expense_status:status,
-      updated_at:new Date().toISOString()
-    })
-    .eq('id',id);
-
+  const {error}=await supabase.from('expenses').update({expense_status:status,updated_at:new Date().toISOString()}).eq('id',id);
   finishAdmin(error,error?'':'Expense status updated.');
-
   if(!error) await load();
 }
 
 function renderSchedule(){
-  $('scheduleBody').innerHTML=schedules.map(x=>`
-    <tr>
-      <td><strong>${esc(x.festivals?.name||'')}</strong></td>
-      <td>${formatDate(x.schedule_date)}</td>
-      <td>${esc(x.event_time||'')}</td>
-      <td>${esc(x.title)}</td>
-      <td>${esc(x.description||'')}</td>
-    </tr>
-  `).join('')||emptyRow(
-    5,
-    'Schedule will appear here once entries are added'
-  );
+  $('scheduleBody').innerHTML=schedules.map(x=>`<tr><td><strong>${esc(x.festivals?.name||'')}</strong></td><td>${formatDate(x.schedule_date)}</td><td>${esc(x.event_time||'')}</td><td>${esc(x.title)}</td><td>${esc(x.description||'')}</td></tr>`).join('')||emptyRow(5,'Schedule will appear here once entries are added');
 }
 
 function fillSelects(){
-  const opts=festivals.map(x=>
-    `<option value="${x.id}">${esc(x.name)}</option>`
-  ).join('');
-
-  ['collectionFestival','expenseFestival','scheduleFestival']
-    .forEach(id=>$(id).innerHTML=opts);
-
-  $('collectionFestivalFilter').innerHTML=
-    '<option value="">All festivals</option>'+opts;
-
-  $('expenseFestivalFilter').innerHTML=
-    '<option value="">All categories</option>'+opts;
-
-  $('collectionMember').innerHTML=
-    '<option value="">General donation / no flat</option>'+
-    members.map(x=>
-      `<option value="${x.id}">
-        ${esc(x.block_no)} ${esc(x.flat_no)} — ${esc(x.name)}
-      </option>`
-    ).join('');
+  const opts=festivals.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');
+  ['collectionFestival','expenseFestival','scheduleFestival'].forEach(id=>{const el=$(id);if(el)el.innerHTML=opts;});
+  if($('collectionFestivalFilter'))$('collectionFestivalFilter').innerHTML='<option value="">All festivals</option>'+opts;
+  if($('expenseFestivalFilter'))$('expenseFestivalFilter').innerHTML='<option value="">All categories</option>'+opts;
+  if($('collectionMember'))$('collectionMember').innerHTML='<option value="">General donation / no flat</option>'+members.map(x=>`<option value="${x.id}">${esc(x.block_no)} ${esc(x.flat_no)} — ${esc(x.name)}</option>`).join('');
 }
 
-function emptyRow(n,text){
-  return `<tr><td colspan="${n}" class="muted center">${text}</td></tr>`;
-}
-
-function esc(v){
-  return String(v??'').replace(
-    /[&<>"']/g,
-    c=>({
-      '&':'&amp;',
-      '<':'&lt;',
-      '>':'&gt;',
-      '"':'&quot;',
-      "'":'&#039;'
-    }[c])
-  );
-}
-
-function safeUrl(v){
-  return esc(String(v||'').trim());
-}
-
-function formatDate(v){
-  if(!v)return '';
-  const [y,m,d]=String(v).split('-');
-  return d&&m&&y?`${d}/${m}/${y}`:v;
-}
+function emptyRow(n,text){return `<tr><td colspan="${n}" class="muted center">${text}</td></tr>`;}
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
+function safeUrl(v){return esc(String(v||'').trim());}
+function formatDate(v){if(!v)return '';const [y,m,d]=String(v).split('-');return d&&m&&y?`${d}/${m}/${y}`:v;}
 
 async function refreshAuth(){
   const {data:{session}}=await supabase.auth.getSession();
-
-  $('loginBtn').classList.toggle('hidden',!!session);
-  $('logoutBtn').classList.toggle('hidden',!session);
-  $('userBadge').classList.toggle('hidden',!session);
-
+  $('loginBtn').classList.toggle('hidden',!!session);$('logoutBtn').classList.toggle('hidden',!session);$('userBadge').classList.toggle('hidden',!session);
   profile=null;
-
   if(session){
-    const {data}=await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id',session.user.id)
-      .single();
-
-    profile=data;
-
-    $('userBadge').textContent=data?.full_name||'Tapas';
-    $('roleBadge').textContent=data?.role||'resident';
-
-    const staff=['admin','treasurer','committee'].includes(data?.role);
-
-    $('adminTab').classList.toggle('hidden',!staff);
-
-    renderCollections();
-    renderExpenses();
-
-    if(!staff&&location.hash==='#admin')
-      showPage('dashboard');
-
-  }else{
-    $('adminTab').classList.add('hidden');
-    $('collectionActionHead').classList.add('hidden');
-
-    if(location.hash==='#admin')
-      showPage('dashboard');
-  }
+    const {data}=await supabase.from('user_profiles').select('*').eq('id',session.user.id).single();
+    profile=data;$('userBadge').textContent=data?.full_name||'Tapas';$('roleBadge').textContent=data?.role||'resident';
+    const staff=['admin','treasurer','committee'].includes(data?.role);$('adminTab').classList.toggle('hidden',!staff);renderCollections();renderExpenses();
+    if(!staff&&location.hash==='#admin')showPage('dashboard');
+  }else{$('adminTab').classList.add('hidden');$('collectionActionHead').classList.add('hidden');if(location.hash==='#admin')showPage('dashboard');}
 }
 
 async function addMember(ev){
   ev.preventDefault();
-
-  const {error}=await supabase
-    .from('members')
-    .insert({
-      society_id:SOCIETY_ID,
-      block_no:$('memberBlock').value.trim(),
-      flat_no:$('memberFlat').value.trim(),
-      name:$('memberName').value.trim()
-    });
-
-  finishAdmin(error,'Member saved.');
-
-  if(!error){
-    ev.target.reset();
-    await load();
-  }
+  const {error}=await supabase.from('members').insert({society_id:SOCIETY_ID,block_no:$('memberBlock').value.trim(),flat_no:$('memberFlat').value.trim(),name:$('memberName').value.trim()});
+  finishAdmin(error,'Member saved.');if(!error){ev.target.reset();await load();}
 }
 
 async function addCollection(ev){
   ev.preventDefault();
-
-  const member=$('collectionMember').value||null;
-  const name=$('collectionName').value.trim();
-
-  const {error}=await supabase
-    .from('collections')
-    .insert({
-      festival_id:$('collectionFestival').value,
-      member_id:member,
-      amount:Number($('collectionAmount').value),
-      collection_date:$('collectionDate').value,
-      status:$('collectionStatus').value,
-      collection_type:$('collectionType').value,
-      payment_mode:$('collectionMode').value,
-      receipt_no:$('collectionReceiptNo').value.trim()||null,
-      transaction_id:$('collectionTransactionId').value.trim()||null,
-      file_upload_url:$('collectionReceiptFile').value.trim()||null,
-      receipt_url:$('collectionReceiptFile').value.trim()||null,
-      receipt_download_url:$('collectionReceiptDownload').value.trim()||null,
-      notes:name||null
-    });
-
-  finishAdmin(error,'Collection saved.');
-
-  if(!error){
-    ev.target.reset();
-    await load();
-  }
+  const member=$('collectionMember').value||null,name=$('collectionName').value.trim();
+  const {error}=await supabase.from('collections').insert({festival_id:$('collectionFestival').value,member_id:member,amount:Number($('collectionAmount').value),collection_date:$('collectionDate').value,status:$('collectionStatus').value,collection_type:$('collectionType').value,payment_mode:$('collectionMode').value,receipt_no:$('collectionReceiptNo').value.trim()||null,transaction_id:$('collectionTransactionId').value.trim()||null,file_upload_url:$('collectionReceiptFile').value.trim()||null,receipt_url:$('collectionReceiptFile').value.trim()||null,receipt_download_url:$('collectionReceiptDownload').value.trim()||null,notes:name||null});
+  finishAdmin(error,'Collection saved.');if(!error){ev.target.reset();await load();}
 }
 
 async function editCollection(id){
-  const x=collections.find(r=>r.id===id);
-  if(!x)return;
-
-  const amount=prompt('Amount',x.amount);
-  if(amount===null)return;
-
-  const status=prompt(
-    'Status: Paid / Progress / Cancelled',
-    x.status||'Paid'
-  );
-  if(status===null)return;
-
-  const receipt=prompt(
-    'Receipt No',
-    x.receipt_no||''
-  );
-  if(receipt===null)return;
-
-  const {error}=await supabase
-    .from('collections')
-    .update({
-      amount:Number(amount),
-      status:status.trim(),
-      receipt_no:receipt.trim()||null,
-      updated_at:new Date().toISOString()
-    })
-    .eq('id',id);
-
-  finishAdmin(error,error?'':'Collection updated.');
-
-  if(!error) await load();
+  const x=collections.find(r=>r.id===id);if(!x)return;
+  const amount=prompt('Amount',x.amount);if(amount===null)return;
+  const status=prompt('Status: Paid / Progress / Cancelled',x.status||'Paid');if(status===null)return;
+  const receipt=prompt('Receipt No',x.receipt_no||'');if(receipt===null)return;
+  const {error}=await supabase.from('collections').update({amount:Number(amount),status:status.trim(),receipt_no:receipt.trim()||null,updated_at:new Date().toISOString()}).eq('id',id);
+  finishAdmin(error,error?'':'Collection updated.');if(!error)await load();
 }
 
 async function addExpense(ev){
   ev.preventDefault();
-
-  const amount=Number($('expenseAmount').value);
-  const advance=Number($('expenseAdvance').value||0);
-  const status=$('expenseStatus').value;
-
-  const {error}=await supabase
-    .from('expenses')
-    .insert({
-      festival_id:$('expenseFestival').value,
-      expense_date:$('expenseDate').value,
-      expense_name:$('expenseName').value.trim(),
-      total_amount:amount,
-      advance_amount:advance,
-      remaining_amount:Math.max(0,amount-advance),
-      expense_status:status,
-      bill_url:$('expenseBill').value.trim()||null,
-      attended:false
-    });
-
-  finishAdmin(error,'Expense saved.');
-
-  if(!error){
-    ev.target.reset();
-    $('expenseAdvance').value='0';
-    $('expenseStatus').value='Pending';
-    await load();
-  }
+  const amount=Number($('expenseAmount').value),advance=Number($('expenseAdvance').value||0),status=$('expenseStatus').value;
+  const {error}=await supabase.from('expenses').insert({festival_id:$('expenseFestival').value,expense_date:$('expenseDate').value,expense_name:$('expenseName').value.trim(),total_amount:amount,advance_amount:advance,remaining_amount:Math.max(0,amount-advance),expense_status:status,bill_url:$('expenseBill').value.trim()||null,attended:false});
+  finishAdmin(error,'Expense saved.');if(!error){ev.target.reset();$('expenseAdvance').value='0';$('expenseStatus').value='Pending';await load();}
 }
 
 async function addSchedule(ev){
   ev.preventDefault();
-
-  const {error}=await supabase
-    .from('puja_schedules')
-    .insert({
-      festival_id:$('scheduleFestival').value,
-      schedule_date:$('scheduleDate').value||null,
-      event_time:$('scheduleTime').value.trim()||null,
-      title:$('scheduleTitle').value.trim(),
-      description:$('scheduleDescription').value.trim()||null,
-      sort_order:Number($('scheduleOrder').value||10)
-    });
-
-  finishAdmin(error,'Schedule saved.');
-
-  if(!error){
-    ev.target.reset();
-    $('scheduleOrder').value='10';
-    await load();
-  }
+  const {error}=await supabase.from('puja_schedules').insert({festival_id:$('scheduleFestival').value,schedule_date:$('scheduleDate').value||null,event_time:$('scheduleTime').value.trim()||null,title:$('scheduleTitle').value.trim(),description:$('scheduleDescription').value.trim()||null,sort_order:Number($('scheduleOrder').value||10)});
+  finishAdmin(error,'Schedule saved.');if(!error){ev.target.reset();$('scheduleOrder').value='10';await load();}
 }
 
-function finishAdmin(error,ok){
-  $('adminMessage').textContent=error?error.message:ok;
-}
+function finishAdmin(error,ok){$('adminMessage').textContent=error?error.message:ok;}
+function showPage(name){document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));const page=$(`page-${name}`);if(page)page.classList.remove('hidden');document.querySelectorAll('.main-tabs .tab').forEach(b=>b.classList.toggle('active',b.dataset.page===name));location.hash=name;}
 
-function showPage(name){
-  document.querySelectorAll('.page')
-    .forEach(p=>p.classList.add('hidden'));
-
-  const page=$(`page-${name}`);
-
-  if(page)page.classList.remove('hidden');
-
-  document.querySelectorAll('.main-tabs .tab')
-    .forEach(b=>
-      b.classList.toggle('active',b.dataset.page===name)
-    );
-
-  location.hash=name;
-}
-
-$('loginBtn').onclick=()=>{
-  $('authPanel').classList.remove('hidden');
-  $('password').focus();
-};
-
-$('logoutBtn').onclick=async()=>{
-  await supabase.auth.signOut();
-  await refreshAuth();
-};
-
+$('loginBtn').onclick=()=>{$('authPanel').classList.remove('hidden');$('password').focus();};
+$('logoutBtn').onclick=async()=>{await supabase.auth.signOut();await refreshAuth();};
 $('refreshBtn').onclick=load;
-
-[
-  'collectionSearch',
-  'collectionFestivalFilter',
-  'collectionTypeFilter',
-  'collectionModeFilter',
-  'collectionStatusFilter'
-].forEach(id=>
-  $(id).addEventListener('input',renderCollections)
-);
-
-[
-  'expenseSearch',
-  'expenseFestivalFilter'
-].forEach(id=>
-  $(id).addEventListener('input',renderExpenses)
-);
-
-$('memberForm').onsubmit=addMember;
-$('collectionForm').onsubmit=addCollection;
-$('expenseForm').onsubmit=addExpense;
-$('scheduleForm').onsubmit=addSchedule;
-
-document.querySelectorAll('.main-tabs .tab')
-  .forEach(b=>b.onclick=()=>showPage(b.dataset.page));
+['collectionSearch','collectionFestivalFilter','collectionTypeFilter','collectionModeFilter','collectionStatusFilter'].forEach(id=>$(id).addEventListener('input',renderCollections));
+['expenseSearch','expenseFestivalFilter'].forEach(id=>$(id).addEventListener('input',renderExpenses));
+$('memberForm').onsubmit=addMember;$('collectionForm').onsubmit=addCollection;$('expenseForm').onsubmit=addExpense;$('scheduleForm').onsubmit=addSchedule;
+document.querySelectorAll('.main-tabs .tab').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
 
 $('authForm').onsubmit=async e=>{
   e.preventDefault();
-
-  const username=$('loginUser').value.trim();
-  const password=$('password').value;
-
-  const email=username.toLowerCase()==='tapas'
-    ? LOGIN_EMAIL
-    : username;
-
-  const result=await supabase.auth.signInWithPassword({
-    email,
-    password
-  });
-
-  $('authMessage').textContent=
-    result.error
-      ? result.error.message
-      : 'Logged in successfully.';
-
-  if(!result.error){
-    $('authPanel').classList.add('hidden');
-    await refreshAuth();
-    showPage('admin');
-    await load();
-  }
+  const username=$('loginUser').value.trim(),password=$('password').value;
+  const email=username.toLowerCase()==='tapas'?LOGIN_EMAIL:username;
+  const result=await supabase.auth.signInWithPassword({email,password});
+  $('authMessage').textContent=result.error?result.error.message:'Logged in successfully.';
+  if(!result.error){$('authPanel').classList.add('hidden');await refreshAuth();showPage('admin');await load();}
 };
 
-(async()=>{
-  await refreshAuth();
-  await load();
-})();
+(async()=>{await refreshAuth();await load();})();
