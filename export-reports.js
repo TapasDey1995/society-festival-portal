@@ -10,8 +10,8 @@ const amount=n=>Number(n||0);
 const date=v=>{if(!v)return '';const [y,m,d]=String(v).split('-');return d&&m&&y?`${d}/${m}/${y}`:v;};
 
 function expenseNumbers(x){
-  const total=amount(x.total_amount),advance=amount(x.advance_amount),status=x.expense_status||'Pending';
-  return status==='Clear'?{done:total,remaining:0}:{done:advance,remaining:Math.max(0,total-advance)};
+  const total=amount(x.total_amount),advance=amount(x.advance_amount),status=String(x.expense_status||'Pending').trim().toLowerCase();
+  return status==='clear'?{done:total,remaining:0}:{done:advance,remaining:Math.max(0,total-advance)};
 }
 function makeButton(id,label){if($(id))return $(id);const b=document.createElement('button');b.id=id;b.type='button';b.className='secondary';b.textContent=label;b.dataset.exportButton='1';return b;}
 function createExportButtons(){
@@ -90,14 +90,19 @@ async function downloadExpenses(){
   if(collectionError){alert('Unable to load collection records: '+collectionError.message);return;}
 
   const festivalList=['15th Aug','Ganesh Puja','Durga Puja','Lakshmi Puja'];
-  const festivalMap=new Map((festivals||[]).map(x=>[x.name,x.id]));
   const festivalIdMap=new Map((festivals||[]).map(x=>[x.id,x.name]));
   const source=(data||[]).filter(x=>x.festival_id && festivalIdMap.has(x.festival_id));
   const byFestival={};
   festivalList.forEach(name=>{byFestival[name]=source.filter(x=>festivalIdMap.get(x.festival_id)===name);});
 
-  const totalCollection=(collections||[]).reduce((sum,x)=>sum+(String(x.status||'').toLowerCase()==='paid'?amount(x.amount):0),0);
-  const totalExpenses=source.reduce((sum,x)=>sum+amount(x.total_amount),0);
+  // Collection total = every amount currently recorded in the Collection tab.
+  const totalCollection=(collections||[]).reduce((sum,x)=>sum+amount(x.amount),0);
+  // For each festival, Clear expenses count the full total amount; Pending expenses count only advance paid till date.
+  const festivalExpenses={};
+  festivalList.forEach(name=>{
+    festivalExpenses[name]=byFestival[name].reduce((sum,x)=>sum+expenseNumbers(x).done,0);
+  });
+  const totalExpenses=festivalList.reduce((sum,name)=>sum+festivalExpenses[name],0);
   const remainingFund=totalCollection-totalExpenses;
 
   const wb=XLSX.utils.book_new();
@@ -106,8 +111,11 @@ async function downloadExpenses(){
     ['Financial Summary'],
     [],
     ['Total Collection',totalCollection],
-    ['Total Expenses — All 4 Festivals',totalExpenses],
-    ['Remaining Fund',remainingFund]
+    ['15th Aug Expenses',festivalExpenses['15th Aug']],
+    ['Ganesh Puja Expenses',festivalExpenses['Ganesh Puja']],
+    ['Durga Puja Expenses',festivalExpenses['Durga Puja']],
+    ['Lakshmi Puja Expenses',festivalExpenses['Lakshmi Puja']],
+    ['Remaining Balance',remainingFund]
   ];
   const main=XLSX.utils.aoa_to_sheet(mainRows);
   styleWorkbook(main,[42,24]);
