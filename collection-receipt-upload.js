@@ -63,9 +63,16 @@ function decorateReceiptCells(){
   });
 }
 
-const body=document.getElementById('collectionBody');
-if(body){
-  new MutationObserver(decorateReceiptCells).observe(body,{childList:true});
-  document.addEventListener('DOMContentLoaded',decorateReceiptCells);
-  setTimeout(decorateReceiptCells,500);
+function watchReceiptTable(){
+  const body=document.getElementById('collectionBody');
+  if(body)new MutationObserver(decorateReceiptCells).observe(body,{childList:true,subtree:true});
+  const roleBadge=document.getElementById('roleBadge');
+  if(roleBadge)new MutationObserver(decorateReceiptCells).observe(roleBadge,{childList:true,subtree:true,characterData:true});
+  decorateReceiptCells();
+  setTimeout(decorateReceiptCells,300);
+  setTimeout(decorateReceiptCells,1000);
+  setTimeout(decorateReceiptCells,2000);
 }
+
+document.addEventListener('DOMContentLoaded',watchReceiptTable);
+if(document.readyState!=='loading')watchReceiptTable();
