@@ -7,7 +7,33 @@ const supabase=createClient(SUPABASE_URL,SUPABASE_KEY); const $=id=>document.get
 const money=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(Number(n||0));
 let festivals=[],members=[],collections=[],expenses=[],schedules=[],profile=null;
 function expenseNumbers(x){const total=Number(x.total_amount||0),advance=Number(x.advance_amount||0),status=x.expense_status||'Pending';return status==='Clear'?{paid:total,remaining:0}:{paid:advance,remaining:Math.max(0,total-advance)};}
-async function load(){const [f,m,c,e,s]=await Promise.all([supabase.from('festivals').select('*').eq('society_id',SOCIETY_ID).order('sort_order'),supabase.from('members').select('*').eq('society_id',SOCIETY_ID).order('block_no').order('flat_no'),supabase.from('collections').select('*, festivals(name), members(block_no,flat_no,name)').order('collection_date',{ascending:false}).order('created_at',{ascending:false}),supabase.from('expenses').select('*, festivals(name)').order('expense_date',{ascending:false}),supabase.from('puja_schedules').select('*, festivals(name)').order('schedule_date').order('sort_order')]); festivals=f.data||[];members=m.data||[];collections=c.data||[];expenses=e.data||[];schedules=s.data||[];renderAll();fillSelects();}
+async function load(){
+  try{
+    const [f,m,c,e,s]=await Promise.all([
+      supabase.from('festivals').select('*').eq('society_id',SOCIETY_ID).order('sort_order'),
+      supabase.from('members').select('*').eq('society_id',SOCIETY_ID).order('block_no').order('flat_no'),
+      supabase.from('collections').select('*').order('collection_date',{ascending:false}).order('created_at',{ascending:false}),
+      supabase.from('expenses').select('*').order('expense_date',{ascending:false}),
+      supabase.from('puja_schedules').select('*').order('schedule_date').order('sort_order')
+    ]);
+    const firstError=[f,m,c,e,s].find(r=>r.error);
+    if(firstError?.error) throw firstError.error;
+    festivals=f.data||[]; members=m.data||[]; collections=c.data||[]; expenses=e.data||[]; schedules=s.data||[];
+    const festivalMap=new Map(festivals.map(x=>[x.id,x]));
+    const memberMap=new Map(members.map(x=>[x.id,x]));
+    collections=collections.map(x=>({...x,festivals:festivalMap.get(x.festival_id)||null,members:memberMap.get(x.member_id)||null}));
+    expenses=expenses.map(x=>({...x,festivals:festivalMap.get(x.festival_id)||null}));
+    schedules=schedules.map(x=>({...x,festivals:festivalMap.get(x.festival_id)||null}));
+    renderAll(); fillSelects();
+  }catch(error){
+    console.error('Portal data load error:',error);
+    const msg=error?.message||String(error);
+    if($('adminMessage')) $('adminMessage').textContent='Data loading error: '+msg;
+    if($('summaryBody')) $('summaryBody').innerHTML=emptyRow(5,'Unable to load data. Please refresh.');
+    if($('collectionBody')) $('collectionBody').innerHTML=emptyRow(13,'Unable to load collection data.');
+    if($('expenseGroups')) $('expenseGroups').innerHTML='<p class="muted">Unable to load expense data.</p>';
+  }
+}
 function renderAll(){renderDashboard();renderCollections();renderExpenses();renderSchedule();}
 function renderDashboard(){const totalCollected=collections.filter(x=>x.status!=='Cancelled').reduce((a,x)=>a+Number(x.amount||0),0);const totalPaid=expenses.reduce((a,x)=>a+expenseNumbers(x).paid,0);const totalRemaining=expenses.reduce((a,x)=>a+expenseNumbers(x).remaining,0);$('totalCollected').textContent=money(totalCollected);$('totalExpenses').textContent=money(totalPaid);$('totalRemaining').textContent=money(totalRemaining);$('totalBalance').textContent=money(totalCollected-totalPaid);const paidFlats=new Set(collections.filter(x=>x.status==='Paid'&&x.members?.block_no&&x.members?.flat_no).map(x=>`${x.members.block_no}-${x.members.flat_no}`));const count=paidFlats.size,pct=Math.min(100,Math.round(count/TOTAL_FLATS*100));$('contributorCount').textContent=`${count} / ${TOTAL_FLATS}`;$('contributorPercent').textContent=`${pct}%`;$('contributorProgress').style.width=`${pct}%`;const groups=festivals.map(f=>{const col=collections.filter(x=>x.festival_id===f.id&&x.status!=='Cancelled').reduce((a,x)=>a+Number(x.amount||0),0);const festivalExpenses=expenses.filter(x=>x.festival_id===f.id);const paid=festivalExpenses.reduce((a,x)=>a+expenseNumbers(x).paid,0);const remaining=festivalExpenses.reduce((a,x)=>a+expenseNumbers(x).remaining,0);return{name:f.name,total_collection:col,total_expense:paid,remaining,balance:col-paid};});$('summaryBody').innerHTML=groups.map(r=>`<tr><td><strong>${esc(r.name)}</strong></td><td>${money(r.total_collection)}</td><td>${money(r.total_expense)}</td><td>${money(r.remaining)}</td><td class="${r.balance>=0?'positive':'negative'}">${money(r.balance)}</td></tr>`).join('')||emptyRow(5,'No festival data');}
 function renderCollections(){const q=($('collectionSearch').value||'').toLowerCase(),festival=$('collectionFestivalFilter').value,type=$('collectionTypeFilter').value,mode=$('collectionModeFilter').value,status=$('collectionStatusFilter').value;const rows=collections.filter(x=>{const text=`${x.festivals?.name||''} ${x.members?.block_no||''} ${x.members?.flat_no||''} ${x.members?.name||''} ${x.receipt_no||''}`.toLowerCase();return(!q||text.includes(q))&&(!festival||x.festival_id===festival)&&(!type||x.collection_type===type)&&(!mode||x.payment_mode===mode)&&(!status||x.status===status);});const staff=!!profile&&['admin','treasurer','committee'].includes(profile.role);$('collectionActionHead').classList.toggle('hidden',!staff);$('collectionBody').innerHTML=rows.map((x,i)=>{const receipt=x.receipt_url||x.file_upload_url;const download=x.receipt_download_url;return `<tr><td>${i+1}</td><td>${formatDate(x.collection_date)}</td><td>${esc(x.members?.block_no||'')}</td><td>${esc(x.members?.flat_no||'')}</td><td>${esc(x.members?.name||x.notes||'')}</td><td>${money(x.amount)}</td><td>${esc(x.payment_mode||'')}</td><td><span class="status ${x.status==='Cancelled'?'cancelled':x.status==='Progress'?'progress-status':'paid'}">${esc(x.status||'')}</span></td><td>${esc(x.receipt_no||'')}</td><td>${esc(x.transaction_id||'')}</td><td>${receipt?`<a href="${safeUrl(receipt)}" target="_blank" rel="noopener">View file</a>`:'—'}</td><td>${esc(x.collection_type||'')}</td><td>${download?`<a href="${safeUrl(download)}" target="_blank" rel="noopener">Download</a>`:'—'}</td>${staff?`<td><button class="secondary edit-collection" data-id="${x.id}">Edit</button></td>`:''}</tr>`}).join('')||emptyRow(staff?14:13,'No collections match the filters');document.querySelectorAll('.edit-collection').forEach(b=>b.onclick=()=>editCollection(b.dataset.id));}
