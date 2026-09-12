@@ -1,3 +1,4 @@
+import * as XLSX from 'https://esm.sh/xlsx@0.18.5?bundle';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 
 const SUPABASE_URL='https://suvwxkjytbmpxaqovulq.supabase.co';
@@ -41,13 +42,8 @@ async function ensureLoggedIn(){
   return true;
 }
 
-function styleWorkbook(ws,cols){
-  ws['!cols']=cols.map(wch=>({wch}));
-}
-
-function setHyperlink(ws,cell,url){
-  if(url&&ws[cell]){ws[cell].l={Target:url,Tooltip:'Open supporting document'};}
-}
+function styleWorkbook(ws,cols){ws['!cols']=cols.map(wch=>({wch}));}
+function setHyperlink(ws,cell,url){if(url&&ws[cell])ws[cell].l={Target:url,Tooltip:'Open supporting document'};}
 
 async function downloadCollections(){
   if(!await ensureLoggedIn())return;
@@ -70,6 +66,7 @@ async function downloadCollections(){
   if(rows.length===1)rows.push(['','','No collection records','','','','','','','','','','','']);
   const ws=XLSX.utils.aoa_to_sheet(rows);styleWorkbook(ws,[8,14,22,12,12,30,16,18,14,18,24,28,20,20]);
   links.forEach(x=>{setHyperlink(ws,`M${x.row}`,x.receipt);setHyperlink(ws,`N${x.row}`,x.download);});
+  ws['!freeze']={xSplit:0,ySplit:1};
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'All Collections');XLSX.writeFile(wb,'Meena_Orchid_All_Collections.xlsx');
 }
 
