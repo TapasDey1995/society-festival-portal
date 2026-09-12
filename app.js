@@ -9,10 +9,7 @@ const supabase=createClient(SUPABASE_URL,SUPABASE_KEY); const $=id=>document.get
 const money=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(Number(n||0));
 let festivals=[],members=[],collections=[],expenses=[],schedules=[],profile=null;
 
-function expenseNumbers(x){
-  const total=Number(x.total_amount||0),advance=Number(x.advance_amount||0),status=x.expense_status||'Pending';
-  return status==='Clear' ? {paid:total,remaining:0} : {paid:advance,remaining:Math.max(0,total-advance)};
-}
+function expenseNumbers(x){const total=Number(x.total_amount||0),advance=Number(x.advance_amount||0),status=x.expense_status||'Pending';return status==='Clear'?{paid:total,remaining:0}:{paid:advance,remaining:Math.max(0,total-advance)};}
 
 async function load(){
   try{
@@ -23,151 +20,44 @@ async function load(){
       supabase.from('expenses').select('*').order('expense_date',{ascending:false}),
       supabase.from('puja_schedules').select('*').order('schedule_date').order('sort_order')
     ]);
-    if(c.error) throw c.error;
     if(f.error) console.error('Festivals load error:',f.error);
     if(m.error) console.error('Members load error:',m.error);
+    if(c.error) console.error('Collections load error:',c.error);
     if(e.error) console.error('Expenses load error:',e.error);
     if(s.error) console.error('Schedule load error:',s.error);
-    festivals=f.error ? [] : (f.data||[]);
-    members=m.error ? [] : (m.data||[]);
-    collections=c.data||[];
-    expenses=e.error ? [] : (e.data||[]);
-    schedules=s.error ? [] : (s.data||[]);
-    const festivalMap=new Map(festivals.map(x=>[x.id,x]));
-    const memberMap=new Map(members.map(x=>[x.id,x]));
+    festivals=f.error?[]:(f.data||[]); members=m.error?[]:(m.data||[]); collections=c.error?[]:(c.data||[]); expenses=e.error?[]:(e.data||[]); schedules=s.error?[]:(s.data||[]);
+    const festivalMap=new Map(festivals.map(x=>[x.id,x])); const memberMap=new Map(members.map(x=>[x.id,x]));
     collections=collections.map(x=>({...x,festivals:festivalMap.get(x.festival_id)||null,members:memberMap.get(x.member_id)||null}));
-    expenses=expenses.map(x=>({...x,festivals:festivalMap.get(x.festival_id)||null}));
-    schedules=schedules.map(x=>({...x,festivals:festivalMap.get(x.festival_id)||null}));
+    expenses=expenses.map(x=>({...x,festivals:festivalMap.get(x.festival_id)||null})); schedules=schedules.map(x=>({...x,festivals:festivalMap.get(x.festival_id)||null}));
     renderAll(); fillSelects();
+    if(c.error) formMessage('collectionQuickMessage','Unable to load collection data: '+c.error.message,true);
   }catch(error){
     console.error('Portal data load error:',error);
-    const msg=error?.message||String(error);
-    if($('adminMessage')) $('adminMessage').textContent='Data loading error: '+msg;
-    if($('summaryBody')) $('summaryBody').innerHTML=emptyRow(5,'Unable to load data. Please refresh.');
-    if($('collectionBody')) $('collectionBody').innerHTML=emptyRow(13,'Unable to load collection data.');
-    if($('expenseGroups')) $('expenseGroups').innerHTML='<p class="muted">Unable to load expense data.</p>';
+    const msg=error?.message||String(error); if($('adminMessage'))$('adminMessage').textContent='Data loading error: '+msg;
+    if($('summaryBody'))$('summaryBody').innerHTML=emptyRow(5,'Unable to load data. Please refresh.');
+    if($('collectionBody'))$('collectionBody').innerHTML=emptyRow(isStaff()?14:13,'Unable to load collection data: '+msg);
+    if($('expenseGroups'))$('expenseGroups').innerHTML='<p class="muted">Unable to load expense data.</p>';
   }
 }
 
 function renderAll(){renderDashboard();renderCollections();renderExpenses();renderSchedule();}
-
-function renderDashboard(){
-  const totalCollected=collections.filter(x=>x.status!=='Cancelled').reduce((a,x)=>a+Number(x.amount||0),0);
-  const totalPaid=expenses.reduce((a,x)=>a+expenseNumbers(x).paid,0);
-  $('totalCollected').textContent=money(totalCollected); $('totalExpenses').textContent=money(totalPaid); $('totalBalance').textContent=money(totalCollected-totalPaid);
-  const paidFlats=new Set(collections.filter(x=>x.status==='Paid'&&x.members?.block_no&&x.members?.flat_no).map(x=>`${x.members.block_no}-${x.members.flat_no}`));
-  const count=paidFlats.size,pct=Math.min(100,Math.round(count/TOTAL_FLATS*100));
-  $('contributorCount').textContent=`${count} / ${TOTAL_FLATS}`; $('contributorPercent').textContent=`${pct}%`; $('contributorProgress').style.width=`${pct}%`;
-  const groups=festivals.map(f=>{const col=collections.filter(x=>x.festival_id===f.id&&x.status!=='Cancelled').reduce((a,x)=>a+Number(x.amount||0),0);const festivalExpenses=expenses.filter(x=>x.festival_id===f.id);const paid=festivalExpenses.reduce((a,x)=>a+expenseNumbers(x).paid,0);const remaining=festivalExpenses.reduce((a,x)=>a+expenseNumbers(x).remaining,0);return {name:f.name,total_collection:col,total_expense:paid,remaining,balance:col-paid};});
-  $('summaryBody').innerHTML=groups.map(r=>`<tr><td><strong>${esc(r.name)}</strong></td><td>${money(r.total_collection)}</td><td>${money(r.total_expense)}</td><td>${money(r.remaining)}</td><td class="${r.balance>=0?'positive':'negative'}">${money(r.balance)}</td></tr>`).join('')||emptyRow(5,'No festival data');
-}
-
-function renderCollections(){
-  const search=$('collectionSearch'),festivalFilter=$('collectionFestivalFilter'),typeFilter=$('collectionTypeFilter'),modeFilter=$('collectionModeFilter'),statusFilter=$('collectionStatusFilter'),body=$('collectionBody'),actionHead=$('collectionActionHead');
-  if(!search||!festivalFilter||!typeFilter||!modeFilter||!statusFilter||!body||!actionHead)return;
-  const q=(search.value||'').trim().toLowerCase(),festival=festivalFilter.value,type=typeFilter.value,mode=modeFilter.value,status=statusFilter.value;
-  const rows=collections.filter(x=>{const text=`${x.festivals?.name||''} ${x.members?.block_no||''} ${x.members?.flat_no||''} ${x.members?.name||''} ${x.receipt_no||''}`.toLowerCase();return (!q||text.includes(q))&&(!festival||x.festival_id===festival)&&(!type||x.collection_type===type)&&(!mode||x.payment_mode===mode)&&(!status||x.status===status);});
-  const staff=isStaff(); actionHead.classList.toggle('hidden',!staff);
-  body.innerHTML=rows.map((x,i)=>{const receipt=x.receipt_url||x.file_upload_url;const download=x.receipt_download_url;return `<tr><td>${i+1}</td><td>${formatDate(x.collection_date)}</td><td>${esc(x.members?.block_no||'')}</td><td>${esc(x.members?.flat_no||'')}</td><td>${esc(x.members?.name||x.notes||'')}</td><td>${money(x.amount)}</td><td>${esc(x.payment_mode||'')}</td><td><span class="status ${x.status==='Cancelled'?'cancelled':x.status==='Progress'?'progress-status':'paid'}">${esc(x.status||'')}</span></td><td>${esc(x.receipt_no||'')}</td><td>${esc(x.transaction_id||'')}</td><td>${receipt?`<a href="${safeUrl(receipt)}" target="_blank" rel="noopener">View file</a>`:'—'}</td><td>${esc(x.collection_type||'')}</td><td>${download?`<a href="${safeUrl(download)}" target="_blank" rel="noopener">Download</a>`:'—'}</td>${staff?`<td><button class="secondary edit-collection" data-id="${x.id}">Edit</button></td>`:''}</tr>`;}).join('')||emptyRow(staff?14:13,'No collections match the filters');
-  document.querySelectorAll('.edit-collection').forEach(b=>b.onclick=()=>editCollection(b.dataset.id));
-}
-
-function renderExpenses(){
-  const q=($('expenseSearch').value||'').toLowerCase(),filter=$('expenseFestivalFilter').value,selected=festivals.filter(f=>!filter||f.id===filter),staff=isStaff();
-  $('expenseGroups').innerHTML=selected.map(f=>{const rows=expenses.filter(x=>x.festival_id===f.id&&(!q||`${x.expense_name||''} ${f.name}`.toLowerCase().includes(q)));const total=rows.reduce((a,x)=>a+Number(x.total_amount||0),0);const paid=rows.reduce((a,x)=>a+expenseNumbers(x).paid,0);return `<div class="expense-group"><div class="group-head"><h3>${esc(f.name)}</h3><div class="expense-totals" style="display:flex;justify-content:space-between;align-items:center;gap:20px;"><span>Total Expenses: <strong>${money(total)}</strong></span><span>Expenses Done: <strong>${money(paid)}</strong></span></div></div><div class="table-wrap"><table><thead><tr><th>Sr No</th><th>Date</th><th>Expense Name</th><th>Total Amount</th><th>Advance</th><th>Expenses Done</th><th>Remaining</th><th>Status</th><th>Bill / Receipt File</th></tr></thead><tbody>${rows.map((x,i)=>{const n=expenseNumbers(x);return `<tr><td>${i+1}</td><td>${formatDate(x.expense_date)}</td><td>${esc(x.expense_name)}</td><td>${money(x.total_amount)}</td><td>${money(x.advance_amount)}</td><td>${money(n.paid)}</td><td>${money(n.remaining)}</td><td>${staff?`<select class="expense-status" data-id="${x.id}"><option ${x.expense_status==='Clear'?'selected':''}>Clear</option><option ${x.expense_status!=='Clear'?'selected':''}>Pending</option></select>`:`<span class="status ${x.expense_status==='Clear'?'paid':'progress-status'}">${esc(x.expense_status||'Pending')}</span>`}</td><td>${x.bill_url?`<a href="${safeUrl(x.bill_url)}" target="_blank" rel="noopener">View file</a>`:'—'}</td></tr>`;}).join('')||emptyRow(9,'No expenses in this category')}</tbody></table></div></div>`;}).join('')||'<p class="muted">No expense categories.</p>';
-  document.querySelectorAll('.expense-status').forEach(s=>s.onchange=()=>updateExpenseStatus(s.dataset.id,s.value));
-}
-
-async function updateExpenseStatus(id,status){const {error}=await supabase.from('expenses').update({expense_status:status,updated_at:new Date().toISOString()});finishAdmin(error,error?'':'Expense status updated.');if(!error)await load();}
+function renderDashboard(){const totalCollected=collections.filter(x=>x.status!=='Cancelled').reduce((a,x)=>a+Number(x.amount||0),0);const totalPaid=expenses.reduce((a,x)=>a+expenseNumbers(x).paid,0);$('totalCollected').textContent=money(totalCollected);$('totalExpenses').textContent=money(totalPaid);$('totalBalance').textContent=money(totalCollected-totalPaid);const paidFlats=new Set(collections.filter(x=>x.status==='Paid'&&x.members?.block_no&&x.members?.flat_no).map(x=>`${x.members.block_no}-${x.members.flat_no}`));const count=paidFlats.size,pct=Math.min(100,Math.round(count/TOTAL_FLATS*100));$('contributorCount').textContent=`${count} / ${TOTAL_FLATS}`;$('contributorPercent').textContent=`${pct}%`;$('contributorProgress').style.width=`${pct}%`;const groups=festivals.map(f=>{const col=collections.filter(x=>x.festival_id===f.id&&x.status!=='Cancelled').reduce((a,x)=>a+Number(x.amount||0),0);const festivalExpenses=expenses.filter(x=>x.festival_id===f.id);const paid=festivalExpenses.reduce((a,x)=>a+expenseNumbers(x).paid,0);const remaining=festivalExpenses.reduce((a,x)=>a+expenseNumbers(x).remaining,0);return{name:f.name,total_collection:col,total_expense:paid,remaining,balance:col-paid};});$('summaryBody').innerHTML=groups.map(r=>`<tr><td><strong>${esc(r.name)}</strong></td><td>${money(r.total_collection)}</td><td>${money(r.total_expense)}</td><td>${money(r.remaining)}</td><td class="${r.balance>=0?'positive':'negative'}">${money(r.balance)}</td></tr>`).join('')||emptyRow(5,'No festival data');}
+function renderCollections(){const search=$('collectionSearch'),festivalFilter=$('collectionFestivalFilter'),typeFilter=$('collectionTypeFilter'),modeFilter=$('collectionModeFilter'),statusFilter=$('collectionStatusFilter'),body=$('collectionBody'),actionHead=$('collectionActionHead');if(!search||!festivalFilter||!typeFilter||!modeFilter||!statusFilter||!body||!actionHead)return;const q=(search.value||'').trim().toLowerCase(),festival=festivalFilter.value,type=typeFilter.value,mode=modeFilter.value,status=statusFilter.value;const rows=collections.filter(x=>{const text=`${x.festivals?.name||''} ${x.members?.block_no||''} ${x.members?.flat_no||''} ${x.members?.name||''} ${x.receipt_no||''}`.toLowerCase();return(!q||text.includes(q))&&(!festival||x.festival_id===festival)&&(!type||x.collection_type===type)&&(!mode||x.payment_mode===mode)&&(!status||x.status===status);});const staff=isStaff();actionHead.classList.toggle('hidden',!staff);body.innerHTML=rows.map((x,i)=>{const receipt=x.receipt_url||x.file_upload_url,download=x.receipt_download_url;return`<tr><td>${i+1}</td><td>${formatDate(x.collection_date)}</td><td>${esc(x.members?.block_no||x.block_no||'')}</td><td>${esc(x.members?.flat_no||x.flat_no||'')}</td><td>${esc(x.members?.name||x.notes||'')}</td><td>${money(x.amount)}</td><td>${esc(x.payment_mode||'')}</td><td><span class="status ${x.status==='Cancelled'?'cancelled':x.status==='Progress'?'progress-status':'paid'}">${esc(x.status||'')}</span></td><td>${esc(x.receipt_no||'')}</td><td>${esc(x.transaction_id||'')}</td><td>${receipt?`<a href="${safeUrl(receipt)}" target="_blank" rel="noopener">View file</a>`:'—'}</td><td>${esc(x.collection_type||'')}</td><td>${download?`<a href="${safeUrl(download)}" target="_blank" rel="noopener">Download</a>`:'—'}</td>${staff?`<td><button class="secondary edit-collection" data-id="${x.id}">Edit</button></td>`:''}</tr>`;}).join('')||emptyRow(staff?14:13,'No collections match the filters');document.querySelectorAll('.edit-collection').forEach(b=>b.onclick=()=>editCollection(b.dataset.id));}
+function renderExpenses(){const q=($('expenseSearch').value||'').toLowerCase(),filter=$('expenseFestivalFilter').value,selected=festivals.filter(f=>!filter||f.id===filter),staff=isStaff();$('expenseGroups').innerHTML=selected.map(f=>{const rows=expenses.filter(x=>x.festival_id===f.id&&(!q||`${x.expense_name||''} ${f.name}`.toLowerCase().includes(q)));const total=rows.reduce((a,x)=>a+Number(x.total_amount||0),0);const paid=rows.reduce((a,x)=>a+expenseNumbers(x).paid,0);return`<div class="expense-group"><div class="group-head"><h3>${esc(f.name)}</h3><div class="expense-totals" style="display:flex;justify-content:space-between;align-items:center;gap:20px;"><span>Total Expenses: <strong>${money(total)}</strong></span><span>Expenses Done: <strong>${money(paid)}</strong></span></div></div><div class="table-wrap"><table><thead><tr><th>Sr No</th><th>Date</th><th>Expense Name</th><th>Total Amount</th><th>Advance</th><th>Expenses Done</th><th>Remaining</th><th>Status</th><th>Bill / Receipt File</th></tr></thead><tbody>${rows.map((x,i)=>{const n=expenseNumbers(x);return`<tr><td>${i+1}</td><td>${formatDate(x.expense_date)}</td><td>${esc(x.expense_name)}</td><td>${money(x.total_amount)}</td><td>${money(x.advance_amount)}</td><td>${money(n.paid)}</td><td>${money(n.remaining)}</td><td>${staff?`<select class="expense-status" data-id="${x.id}"><option ${x.expense_status==='Clear'?'selected':''}>Clear</option><option ${x.expense_status!=='Clear'?'selected':''}>Pending</option></select>`:`<span class="status ${x.expense_status==='Clear'?'paid':'progress-status'}">${esc(x.expense_status||'Pending')}</span>`}</td><td>${x.bill_url?`<a href="${safeUrl(x.bill_url)}" target="_blank" rel="noopener">View file</a>`:'—'}</td></tr>`;}).join('')||emptyRow(9,'No expenses in this category')}</tbody></table></div></div>`;}).join('')||'<p class="muted">No expense categories.</p>';document.querySelectorAll('.expense-status').forEach(s=>s.onchange=()=>updateExpenseStatus(s.dataset.id,s.value));}
+async function updateExpenseStatus(id,status){const {error}=await supabase.from('expenses').update({expense_status:status,updated_at:new Date().toISOString()}).eq('id',id);finishAdmin(error,error?'':'Expense status updated.');if(!error)await load();}
 function renderSchedule(){$('scheduleBody').innerHTML=schedules.map(x=>`<tr><td><strong>${esc(x.festivals?.name||'')}</strong></td><td>${formatDate(x.schedule_date)}</td><td>${esc(x.event_time||'')}</td><td>${esc(x.title)}</td><td>${esc(x.description||'')}</td></tr>`).join('')||emptyRow(5,'Schedule will appear here once entries are added');}
-
-function fillSelects(){
-  const opts=festivals.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');
-  ['collectionFestival','expenseFestival','scheduleFestival','quickCollectionFestival','quickExpenseFestival'].forEach(id=>{const el=$(id);if(el)el.innerHTML=opts;});
-  if($('collectionFestivalFilter'))$('collectionFestivalFilter').innerHTML='<option value="">All festivals</option>'+opts;
-  if($('expenseFestivalFilter'))$('expenseFestivalFilter').innerHTML='<option value="">All categories</option>'+opts;
-  if($('collectionMember'))$('collectionMember').innerHTML='<option value="">General donation / no flat</option>'+members.map(x=>`<option value="${x.id}">${esc(x.block_no)} ${esc(x.flat_no)} — ${esc(x.name)}</option>`).join('');
-  if($('quickCollectionMember'))$('quickCollectionMember').innerHTML='<option value="">General donation / no flat</option>'+members.map(x=>`<option value="${x.id}">${esc(x.block_no)} ${esc(x.flat_no)} — ${esc(x.name)}</option>`).join('');
-}
-
-function emptyRow(n,text){return `<tr><td colspan="${n}" class="muted center">${text}</td></tr>`;}
-function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
-function safeUrl(v){return esc(String(v||'').trim());}
-function formatDate(v){if(!v)return '';const [y,m,d]=String(v).split('-');return d&&m&&y?`${d}/${m}/${y}`:v;}
-function slugFileName(name){return String(name||'file').replace(/[^a-zA-Z0-9._-]+/g,'-').replace(/-+/g,'-').slice(0,120);}
-
-async function uploadDocument(file,folder){
-  if(!file)return null;
-  const allowed=['application/pdf','image/jpeg','image/png','image/webp'];
-  if(!allowed.includes(file.type))throw new Error('Only PDF, JPG, PNG or WEBP files are allowed.');
-  if(file.size>10*1024*1024)throw new Error('File must be 10 MB or smaller.');
-  const safe=slugFileName(file.name); const path=`${folder}/${Date.now()}-${crypto.randomUUID()}-${safe}`;
-  const {error}=await supabase.storage.from(DOCUMENT_BUCKET).upload(path,file,{cacheControl:'3600',upsert:false,contentType:file.type});
-  if(error)throw error;
-  const {data}=supabase.storage.from(DOCUMENT_BUCKET).getPublicUrl(path);
-  return data.publicUrl;
-}
-
-function isStaff(){return !!profile&&['admin','treasurer','committee'].includes(profile.role);}
-function formMessage(id,text,error=false){const el=$(id);if(el){el.textContent=text;el.classList.toggle('negative',!!error);}}
-
-async function refreshAuth(){
-  const {data:{session}}=await supabase.auth.getSession();
-  $('loginBtn').classList.toggle('hidden',!!session);$('logoutBtn').classList.toggle('hidden',!session);$('userBadge').classList.toggle('hidden',!session);
-  profile=null;
-  if(session){
-    const {data,error}=await supabase.from('user_profiles').select('*').eq('id',session.user.id).maybeSingle();
-    if(data){
-      profile=data;
-    }else if(session.user.email===USERNAME_EMAILS.committee){
-      profile={id:session.user.id,society_id:SOCIETY_ID,full_name:'Meena Orchid Committee',role:'committee'};
-      console.warn('Committee profile fallback used:',error?.message||'profile not returned');
-    }else if(session.user.email===USERNAME_EMAILS.tapas){
-      profile={id:session.user.id,society_id:SOCIETY_ID,full_name:'Tapas',role:'admin'};
-    }
-    $('userBadge').textContent=profile?.full_name||session.user.email||'User';
-    $('roleBadge').textContent=profile?.role||'resident';
-    const staff=isStaff();
-    $('adminTab').classList.toggle('hidden',!staff);
-    if($('showCollectionForm'))$('showCollectionForm').classList.toggle('hidden',!staff);
-    if($('showExpenseForm'))$('showExpenseForm').classList.toggle('hidden',!staff);
-    renderCollections();renderExpenses();
-    if(!staff&&location.hash==='#admin')showPage('dashboard');
-  }else{
-    $('adminTab').classList.add('hidden');$('collectionActionHead').classList.add('hidden');
-    if($('showCollectionForm'))$('showCollectionForm').classList.add('hidden');
-    if($('showExpenseForm'))$('showExpenseForm').classList.add('hidden');
-    if(location.hash==='#admin')showPage('dashboard');
-  }
-}
+function fillSelects(){const opts=festivals.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');['collectionFestival','expenseFestival','scheduleFestival','quickCollectionFestival','quickExpenseFestival'].forEach(id=>{const el=$(id);if(el)el.innerHTML=opts;});if($('collectionFestivalFilter'))$('collectionFestivalFilter').innerHTML='<option value="">All festivals</option>'+opts;if($('expenseFestivalFilter'))$('expenseFestivalFilter').innerHTML='<option value="">All categories</option>'+opts;if($('collectionMember'))$('collectionMember').innerHTML='<option value="">General donation / no flat</option>'+members.map(x=>`<option value="${x.id}">${esc(x.block_no)} ${esc(x.flat_no)} — ${esc(x.name)}</option>`).join('');if($('quickCollectionMember'))$('quickCollectionMember').innerHTML='<option value="">General donation / no flat</option>'+members.map(x=>`<option value="${x.id}">${esc(x.block_no)} ${esc(x.flat_no)} — ${esc(x.name)}</option>`).join('');}
+function emptyRow(n,text){return`<tr><td colspan="${n}" class="muted center">${text}</td></tr>`;}function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}function safeUrl(v){return esc(String(v||'').trim());}function formatDate(v){if(!v)return'';const[y,m,d]=String(v).split('-');return d&&m&&y?`${d}/${m}/${y}`:v;}function slugFileName(name){return String(name||'file').replace(/[^a-zA-Z0-9._-]+/g,'-').replace(/-+/g,'-').slice(0,120);}
+async function uploadDocument(file,folder){if(!file)return null;const allowed=['application/pdf','image/jpeg','image/png','image/webp'];if(!allowed.includes(file.type))throw new Error('Only PDF, JPG, PNG or WEBP files are allowed.');if(file.size>10*1024*1024)throw new Error('File must be 10 MB or smaller.');const safe=slugFileName(file.name);const path=`${folder}/${Date.now()}-${crypto.randomUUID()}-${safe}`;const{error}=await supabase.storage.from(DOCUMENT_BUCKET).upload(path,file,{cacheControl:'3600',upsert:false,contentType:file.type});if(error)throw error;const{data}=supabase.storage.from(DOCUMENT_BUCKET).getPublicUrl(path);return data.publicUrl;}
+function isStaff(){return!!profile&&['admin','treasurer','committee'].includes(profile.role);}function formMessage(id,text,error=false){const el=$(id);if(el){el.textContent=text;el.classList.toggle('negative',!!error);}}
+async function refreshAuth(){const{data:{session}}=await supabase.auth.getSession();$('loginBtn').classList.toggle('hidden',!!session);$('logoutBtn').classList.toggle('hidden',!session);$('userBadge').classList.toggle('hidden',!session);profile=null;if(session){const{data,error}=await supabase.from('user_profiles').select('*').eq('id',session.user.id).maybeSingle();if(data){profile=data;}else if(session.user.email===USERNAME_EMAILS.committee){profile={id:session.user.id,society_id:SOCIETY_ID,full_name:'Meena Orchid Committee',role:'committee'};}else if(session.user.email===USERNAME_EMAILS.tapas){profile={id:session.user.id,society_id:SOCIETY_ID,full_name:'Tapas',role:'admin'};}$('userBadge').textContent=profile?.full_name||session.user.email||'User';$('roleBadge').textContent=profile?.role||'resident';const staff=isStaff();$('adminTab').classList.toggle('hidden',!staff);if($('showCollectionForm'))$('showCollectionForm').classList.toggle('hidden',!staff);if($('showExpenseForm'))$('showExpenseForm').classList.toggle('hidden',!staff);renderCollections();renderExpenses();if(!staff&&location.hash==='#admin')showPage('dashboard');}else{$('adminTab').classList.add('hidden');$('collectionActionHead').classList.add('hidden');if($('showCollectionForm'))$('showCollectionForm').classList.add('hidden');if($('showExpenseForm'))$('showExpenseForm').classList.add('hidden');if(location.hash==='#admin')showPage('dashboard');}}
 window.refreshAuth=refreshAuth;
-
-async function addMember(ev){ev.preventDefault();const {error}=await supabase.from('members').insert({society_id:SOCIETY_ID,block_no:$('memberBlock').value.trim(),flat_no:$('memberFlat').value.trim(),name:$('memberName').value.trim()});finishAdmin(error,'Member saved.');if(!error){ev.target.reset();await load();}}
-
-async function saveCollectionFromForm(ev,prefix=''){ev.preventDefault();if(!isStaff()){formMessage(prefix?'collectionQuickMessage':'adminMessage','Committee login required.',true);return;}const id=prefix?`quick${prefix}`:'';const g=k=>$(id?`${id}${k}`:`collection${k}`);const file=g('ReceiptFile').files?.[0]||null;const member=g('Member').value||null,name=g('Name').value.trim();try{const fileUrl=await uploadDocument(file,'receipts');const {error}=await supabase.from('collections').insert({festival_id:g('Festival').value,member_id:member,amount:Number(g('Amount').value),collection_date:g('Date').value,status:g('Status').value,collection_type:g('Type').value,payment_mode:g('Mode').value,receipt_no:g('ReceiptNo').value.trim()||null,transaction_id:g('TransactionId').value.trim()||null,file_upload_url:fileUrl,receipt_url:fileUrl,receipt_download_url:fileUrl,notes:name||null});if(error){formMessage(prefix?'collectionQuickMessage':'adminMessage',error.message,true);return;}formMessage(prefix?'collectionQuickMessage':'adminMessage','Collection saved successfully.');ev.target.reset();await load();}catch(error){formMessage(prefix?'collectionQuickMessage':'adminMessage',error.message,true);}}
-async function addCollection(ev){return saveCollectionFromForm(ev,'');}
-async function addQuickCollection(ev){return saveCollectionFromForm(ev,'Collection');}
-
-async function editCollection(id){const x=collections.find(r=>r.id===id);if(!x)return;const amount=prompt('Amount',x.amount);if(amount===null)return;const status=prompt('Status: Paid / Progress / Cancelled',x.status||'Paid');if(status===null)return;const receipt=prompt('Receipt No',x.receipt_no||'');if(receipt===null)return;const {error}=await supabase.from('collections').update({amount:Number(amount),status:status.trim(),receipt_no:receipt.trim()||null,updated_at:new Date().toISOString()}).eq('id',id);finishAdmin(error,error?'':'Collection updated.');if(!error)await load();}
-
-async function saveExpenseFromForm(ev,prefix=''){ev.preventDefault();if(!isStaff()){formMessage(prefix?'expenseQuickMessage':'adminMessage','Committee login required.',true);return;}const id=prefix?`quick${prefix}`:'';const g=k=>$(id?`${id}${k}`:`expense${k}`);const amount=Number(g('Amount').value),advance=Number(g('Advance').value||0),status=g('Status').value,file=g('Bill').files?.[0]||null;if(advance>amount){formMessage(prefix?'expenseQuickMessage':'adminMessage','Advance cannot be greater than total amount.',true);return;}try{const billUrl=await uploadDocument(file,'bills');const {error}=await supabase.from('expenses').insert({festival_id:g('Festival').value,expense_date:g('Date').value,expense_name:g('Name').value.trim(),total_amount:amount,advance_amount:advance,remaining_amount:Math.max(0,amount-advance),expense_status:status,bill_url:billUrl,attended:false});if(error){formMessage(prefix?'expenseQuickMessage':'adminMessage',error.message,true);return;}formMessage(prefix?'expenseQuickMessage':'adminMessage','Expense saved successfully.');ev.target.reset();if(g('Advance'))g('Advance').value='0';if(g('Status'))g('Status').value='Pending';await load();}catch(error){formMessage(prefix?'expenseQuickMessage':'adminMessage',error.message,true);}}
-async function addExpense(ev){return saveExpenseFromForm(ev,'');}
-async function addQuickExpense(ev){return saveExpenseFromForm(ev,'Expense');}
-
-async function addSchedule(ev){ev.preventDefault();const {error}=await supabase.from('puja_schedules').insert({festival_id:$('scheduleFestival').value,schedule_date:$('scheduleDate').value||null,event_time:$('scheduleTime').value.trim()||null,title:$('scheduleTitle').value.trim(),description:$('scheduleDescription').value.trim()||null,sort_order:Number($('scheduleOrder').value||10)});finishAdmin(error,'Schedule saved.');if(!error){ev.target.reset();$('scheduleOrder').value='10';await load();}}
-function finishAdmin(error,ok){$('adminMessage').textContent=error?error.message:ok;}
-function showPage(name){document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));const page=$(`page-${name}`);if(page)page.classList.remove('hidden');document.querySelectorAll('.main-tabs .tab').forEach(b=>b.classList.toggle('active',b.dataset.page===name));location.hash=name;}
-
-$('loginBtn').onclick=()=>{$('authPanel').classList.remove('hidden');$('password').focus();};
-$('logoutBtn').onclick=async()=>{await supabase.auth.signOut();await refreshAuth();};
-$('refreshBtn').onclick=load;
-['collectionSearch','collectionFestivalFilter','collectionTypeFilter','collectionModeFilter','collectionStatusFilter'].forEach(id=>$(id).addEventListener('input',renderCollections));
-['expenseSearch','expenseFestivalFilter'].forEach(id=>$(id).addEventListener('input',renderExpenses));
-$('memberForm').onsubmit=addMember;$('collectionForm').onsubmit=addCollection;$('expenseForm').onsubmit=addExpense;$('scheduleForm').onsubmit=addSchedule;
-if($('quickCollectionForm'))$('quickCollectionForm').onsubmit=addQuickCollection;
-if($('quickExpenseForm'))$('quickExpenseForm').onsubmit=addQuickExpense;
-if($('showCollectionForm'))$('showCollectionForm').onclick=()=>{$('quickCollectionPanel').classList.toggle('hidden');};
-if($('showExpenseForm'))$('showExpenseForm').onclick=()=>{$('quickExpensePanel').classList.toggle('hidden');};
-document.querySelectorAll('.main-tabs .tab').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
-$('authForm').onsubmit=async e=>{e.preventDefault();const username=$('loginUser').value.trim().toLowerCase(),password=$('password').value;const email=USERNAME_EMAILS[username]||username;const result=await supabase.auth.signInWithPassword({email,password});$('authMessage').textContent=result.error?result.error.message:'Logged in successfully.';if(!result.error){$('authPanel').classList.add('hidden');await refreshAuth();showPage('admin');await load();}};
-(async()=>{await refreshAuth();await load();})();
+async function addMember(ev){ev.preventDefault();const{error}=await supabase.from('members').insert({society_id:SOCIETY_ID,block_no:$('memberBlock').value.trim(),flat_no:$('memberFlat').value.trim(),name:$('memberName').value.trim()});finishAdmin(error,'Member saved.');if(!error){ev.target.reset();await load();}}
+async function saveCollectionFromForm(ev,prefix=''){ev.preventDefault();if(!isStaff()){formMessage(prefix?'collectionQuickMessage':'adminMessage','Committee login required.',true);return;}const id=prefix?`quick${prefix}`:'';const g=k=>$(id?`${id}${k}`:`collection${k}`);try{const block=g('Block').value.trim(),flat=g('Flat').value.trim();let member=null;if(block&&flat){member=members.find(x=>String(x.block_no).trim().toLowerCase()===block.toLowerCase()&&String(x.flat_no).trim().toLowerCase()===flat.toLowerCase())?.id||null;if(!member){formMessage(prefix?'collectionQuickMessage':'adminMessage',`No member found for Block ${block}, Flat ${flat}. Please check the block/flat number.`,true);return;}}const file=g('ReceiptFile').files?.[0]||null;const name=g('Name').value.trim();const fileUrl=await uploadDocument(file,'receipts');const{error}=await supabase.from('collections').insert({festival_id:g('Festival').value,member_id:member,amount:Number(g('Amount').value),collection_date:g('Date').value,status:g('Status').value,collection_type:g('Type').value,payment_mode:g('Mode').value,receipt_no:g('ReceiptNo').value.trim()||null,transaction_id:g('TransactionId').value.trim()||null,file_upload_url:fileUrl,receipt_url:fileUrl,receipt_download_url:fileUrl,notes:name||null});if(error){formMessage(prefix?'collectionQuickMessage':'adminMessage',error.message,true);return;}formMessage(prefix?'collectionQuickMessage':'adminMessage','Collection saved successfully.');ev.target.reset();await load();}catch(error){formMessage(prefix?'collectionQuickMessage':'adminMessage',error?.message||String(error),true);}}
+async function addCollection(ev){return saveCollectionFromForm(ev,'');}async function addQuickCollection(ev){return saveCollectionFromForm(ev,'Collection');}
+async function editCollection(id){const x=collections.find(r=>r.id===id);if(!x)return;const amount=prompt('Amount',x.amount);if(amount===null)return;const status=prompt('Status: Paid / Progress / Cancelled',x.status||'Paid');if(status===null)return;const receipt=prompt('Receipt No',x.receipt_no||'');if(receipt===null)return;const{error}=await supabase.from('collections').update({amount:Number(amount),status:status.trim(),receipt_no:receipt.trim()||null,updated_at:new Date().toISOString()}).eq('id',id);finishAdmin(error,error?'':'Collection updated.');if(!error)await load();}
+async function saveExpenseFromForm(ev,prefix=''){ev.preventDefault();if(!isStaff()){formMessage(prefix?'expenseQuickMessage':'adminMessage','Committee login required.',true);return;}const id=prefix?`quick${prefix}`:'';const g=k=>$(id?`${id}${k}`:`expense${k}`);const amount=Number(g('Amount').value),advance=Number(g('Advance').value||0),status=g('Status').value,file=g('Bill').files?.[0]||null;if(advance>amount){formMessage(prefix?'expenseQuickMessage':'adminMessage','Advance cannot be greater than total amount.',true);return;}try{const billUrl=await uploadDocument(file,'bills');const{error}=await supabase.from('expenses').insert({festival_id:g('Festival').value,expense_date:g('Date').value,expense_name:g('Name').value.trim(),total_amount:amount,advance_amount:advance,remaining_amount:Math.max(0,amount-advance),expense_status:status,bill_url:billUrl,attended:false});if(error){formMessage(prefix?'expenseQuickMessage':'adminMessage',error.message,true);return;}formMessage(prefix?'expenseQuickMessage':'adminMessage','Expense saved successfully.');ev.target.reset();if(g('Advance'))g('Advance').value='0';if(g('Status'))g('Status').value='Pending';await load();}catch(error){formMessage(prefix?'expenseQuickMessage':'adminMessage',error.message,true);}}
+async function addExpense(ev){return saveExpenseFromForm(ev,'');}async function addQuickExpense(ev){return saveExpenseFromForm(ev,'Expense');}
+async function addSchedule(ev){ev.preventDefault();const{error}=await supabase.from('puja_schedules').insert({festival_id:$('scheduleFestival').value,schedule_date:$('scheduleDate').value||null,event_time:$('scheduleTime').value.trim()||null,title:$('scheduleTitle').value.trim(),description:$('scheduleDescription').value.trim()||null,sort_order:Number($('scheduleOrder').value||10)});finishAdmin(error,'Schedule saved.');if(!error){ev.target.reset();$('scheduleOrder').value='10';await load();}}
+function finishAdmin(error,ok){$('adminMessage').textContent=error?error.message:ok;}function showPage(name){document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));const page=$(`page-${name}`);if(page)page.classList.remove('hidden');document.querySelectorAll('.main-tabs .tab').forEach(b=>b.classList.toggle('active',b.dataset.page===name));location.hash=name;}
+$('loginBtn').onclick=()=>{$('authPanel').classList.remove('hidden');$('password').focus();};$('logoutBtn').onclick=async()=>{await supabase.auth.signOut();await refreshAuth();};$('refreshBtn').onclick=load;['collectionSearch','collectionFestivalFilter','collectionTypeFilter','collectionModeFilter','collectionStatusFilter'].forEach(id=>$(id).addEventListener('input',renderCollections));['expenseSearch','expenseFestivalFilter'].forEach(id=>$(id).addEventListener('input',renderExpenses));$('memberForm').onsubmit=addMember;$('collectionForm').onsubmit=addCollection;$('expenseForm').onsubmit=addExpense;$('scheduleForm').onsubmit=addSchedule;if($('quickCollectionForm'))$('quickCollectionForm').onsubmit=addQuickCollection;if($('quickExpenseForm'))$('quickExpenseForm').onsubmit=addQuickExpense;if($('showCollectionForm'))$('showCollectionForm').onclick=()=>{$('quickCollectionPanel').classList.toggle('hidden');};if($('showExpenseForm'))$('showExpenseForm').onclick=()=>{$('quickExpensePanel').classList.toggle('hidden');};document.querySelectorAll('.main-tabs .tab').forEach(b=>b.onclick=()=>showPage(b.dataset.page));$('authForm').onsubmit=async e=>{e.preventDefault();const username=$('loginUser').value.trim().toLowerCase(),password=$('password').value;const email=USERNAME_EMAILS[username]||username;const result=await supabase.auth.signInWithPassword({email,password});$('authMessage').textContent=result.error?result.error.message:'Logged in successfully.';if(!result.error){$('authPanel').classList.add('hidden');await refreshAuth();showPage('admin');await load();}};(async()=>{await refreshAuth();await load();})();
