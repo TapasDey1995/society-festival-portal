@@ -5,21 +5,34 @@ const SUPABASE_KEY='sb_publishable_lY775k5ntfdC5TnfhfBJLg_ioQaD1iY';
 const SOCIETY_ID='5917571c-e36e-44b1-898a-212b8989c6ff';
 const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
 const $=id=>document.getElementById(id);
-const money=n=>Number(n||0);
+const amount=n=>Number(n||0);
+const date=v=>{if(!v)return '';const [y,m,d]=String(v).split('-');return d&&m&&y?`${d}/${m}/${y}`:v;};
 
-function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
-function date(v){if(!v)return '';const [y,m,d]=String(v).split('-');return d&&m&&y?`${d}/${m}/${y}`:v;}
 function expenseNumbers(x){
-  const total=money(x.total_amount),advance=money(x.advance_amount),status=x.expense_status||'Pending';
+  const total=amount(x.total_amount),advance=amount(x.advance_amount),status=x.expense_status||'Pending';
   return status==='Clear'?{done:total,remaining:0}:{done:advance,remaining:Math.max(0,total-advance)};
 }
-function downloadWorkbook(rows,filename,sheetName){
-  if(!window.XLSX){alert('Excel export is still loading. Please try again.');return;}
-  const ws=XLSX.utils.json_to_sheet(rows,{skipHeader:false});
-  ws['!cols']=Object.keys(rows[0]||{}).map(k=>({wch:Math.min(55,Math.max(14,k.length+3))}));
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,sheetName);
-  XLSX.writeFile(wb,filename);
+
+function makeButton(id,label){
+  if($(id))return $(id);
+  const b=document.createElement('button');
+  b.id=id;b.type='button';b.className='secondary';b.textContent=label;b.dataset.exportButton='1';
+  return b;
+}
+
+function createExportButtons(){
+  const collectionPanel=document.querySelector('#page-collections .quick-actions');
+  const expensePanel=document.querySelector('#page-expenses .quick-actions');
+  if(collectionPanel&&!$('downloadCollectionsExcel')){
+    const b=makeButton('downloadCollectionsExcel','Download Excel');
+    collectionPanel.insertBefore(b,collectionPanel.firstChild);
+    b.addEventListener('click',downloadCollections);
+  }
+  if(expensePanel&&!$('downloadExpensesExcel')){
+    const b=makeButton('downloadExpensesExcel','Download Full Expense Report');
+    expensePanel.insertBefore(b,expensePanel.firstChild);
+    b.addEventListener('click',downloadExpenses);
+  }
 }
 
 async function ensureLoggedIn(){
@@ -28,84 +41,79 @@ async function ensureLoggedIn(){
   return true;
 }
 
+function styleWorkbook(ws,cols){
+  ws['!cols']=cols.map(wch=>({wch}));
+}
+
+function setHyperlink(ws,cell,url){
+  if(url&&ws[cell]){ws[cell].l={Target:url,Tooltip:'Open supporting document'};}
+}
+
 async function downloadCollections(){
   if(!await ensureLoggedIn())return;
-  const {data,error}=await supabase.from('collections').select('*').eq('society_id',SOCIETY_ID).order('collection_date',{ascending:true}).order('created_at',{ascending:true});
+  const [{data,error},{data:members},{data:festivals}]=await Promise.all([
+    supabase.from('collections').select('*').eq('society_id',SOCIETY_ID).order('collection_date',{ascending:true}).order('created_at',{ascending:true}),
+    supabase.from('members').select('id,block_no,flat_no,name').eq('society_id',SOCIETY_ID),
+    supabase.from('festivals').select('id,name').eq('society_id',SOCIETY_ID)
+  ]);
   if(error){alert('Unable to load collection records: '+error.message);return;}
-  const {data:members}=await supabase.from('members').select('id,block_no,flat_no,name').eq('society_id',SOCIETY_ID);
-  const {data:festivals}=await supabase.from('festivals').select('id,name').eq('society_id',SOCIETY_ID);
   const mm=new Map((members||[]).map(x=>[x.id,x]));
   const fm=new Map((festivals||[]).map(x=>[x.id,x.name]));
-  const rows=(data||[]).map((x,i)=>({
-    'Sr No':i+1,
-    'Date':date(x.collection_date),
-    'Festival':fm.get(x.festival_id)||'',
-    'Block':mm.get(x.member_id)?.block_no||'',
-    'Flat':mm.get(x.member_id)?.flat_no||'',
-    'Name':mm.get(x.member_id)?.name||x.notes||'',
-    'Amount':money(x.amount),
-    'Payment Mode':x.payment_mode||'',
-    'Status':x.status||'',
-    'Receipt No':x.receipt_no||'',
-    'Transaction ID':x.transaction_id||'',
-    'Collection Type':x.collection_type||'',
-    'Receipt / File':x.receipt_url||x.file_upload_url||'',
-    'Receipt Download':x.receipt_download_url||x.receipt_url||x.file_upload_url||''
-  }));
-  if(!rows.length)rows.push({'Sr No':'','Date':'','Festival':'No collection records','','Block':'','Flat':'','Name':'','Amount':'','Payment Mode':'','Status':'','Receipt No':'','Transaction ID':'','Collection Type':'','Receipt / File':'','Receipt Download':''});
-  downloadWorkbook(rows,'Meena_Orchid_All_Collections.xlsx','All Collections');
+  const rows=[['Sr No','Date','Festival','Block','Flat','Name','Amount','Payment Mode','Status','Receipt No','Transaction ID','Collection Type','Receipt / File','Receipt Download']];
+  const links=[];
+  (data||[]).forEach((x,i)=>{
+    const receipt=x.receipt_url||x.file_upload_url||'';
+    const download=x.receipt_download_url||receipt;
+    rows.push([i+1,date(x.collection_date),fm.get(x.festival_id)||'',mm.get(x.member_id)?.block_no||'',mm.get(x.member_id)?.flat_no||'',mm.get(x.member_id)?.name||x.notes||'',amount(x.amount),x.payment_mode||'',x.status||'',x.receipt_no||'',x.transaction_id||'',x.collection_type||'',receipt?'Open receipt':'',download?'Download receipt':'']);
+    links.push({row:i+2,receipt,download});
+  });
+  if(rows.length===1)rows.push(['','','No collection records','','','','','','','','','','','']);
+  const ws=XLSX.utils.aoa_to_sheet(rows);styleWorkbook(ws,[8,14,22,12,12,30,16,18,14,18,24,28,20,20]);
+  links.forEach(x=>{setHyperlink(ws,`M${x.row}`,x.receipt);setHyperlink(ws,`N${x.row}`,x.download);});
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'All Collections');XLSX.writeFile(wb,'Meena_Orchid_All_Collections.xlsx');
 }
 
 async function downloadExpenses(){
   if(!await ensureLoggedIn())return;
-  const {data,error}=await supabase.from('expenses').select('*').eq('society_id',SOCIETY_ID).order('expense_date',{ascending:true}).order('created_at',{ascending:true});
+  const [{data,error},{data:festivals}]=await Promise.all([
+    supabase.from('expenses').select('*').eq('society_id',SOCIETY_ID).order('expense_date',{ascending:true}).order('created_at',{ascending:true}),
+    supabase.from('festivals').select('id,name').eq('society_id',SOCIETY_ID)
+  ]);
   if(error){alert('Unable to load expense records: '+error.message);return;}
-  const {data:festivals}=await supabase.from('festivals').select('id,name').eq('society_id',SOCIETY_ID);
   const fm=new Map((festivals||[]).map(x=>[x.id,x.name]));
   const source=data||[];
-  const total=source.reduce((a,x)=>a+money(x.total_amount),0);
+  const total=source.reduce((a,x)=>a+amount(x.total_amount),0);
   const done=source.reduce((a,x)=>a+expenseNumbers(x).done,0);
   const remaining=source.reduce((a,x)=>a+expenseNumbers(x).remaining,0);
-  const rows=[];
-  rows.push({'Expense Report':'Meena Orchid Festival Transparency Portal','','','','','','','','',''});
-  rows.push({'Expense Report':'Generated Date', '':new Date().toLocaleString('en-IN'),'','','','','','','',''});
-  rows.push({'Expense Report':'Total Expenses', '':total,'','','','','','','',''});
-  rows.push({'Expense Report':'Expenses Done', '':done,'','','','','','','',''});
-  rows.push({'Expense Report':'Remaining', '':remaining,'','','','','','','',''});
-  rows.push({});
-  source.forEach((x,i)=>{
-    const n=expenseNumbers(x);
-    rows.push({
-      'Sr No':i+1,
-      'Festival / Category':fm.get(x.festival_id)||'',
-      'Date':date(x.expense_date),
-      'Expense Name':x.expense_name||'',
-      'Total Amount':money(x.total_amount),
-      'Advance':money(x.advance_amount),
-      'Expenses Done':n.done,
-      'Remaining':n.remaining,
-      'Status':x.expense_status||'Pending',
-      'Bill / Receipt':x.bill_url||''
-    });
-  });
-  if(!source.length)rows.push({'Sr No':'','Festival / Category':'No expense records','Date':'','Expense Name':'','Total Amount':'','Advance':'','Expenses Done':'','Remaining':'','Status':'','Bill / Receipt':''});
-  if(window.XLSX){
-    const ws=XLSX.utils.json_to_sheet(rows,{skipHeader:false});
-    ws['!cols']=[{wch:8},{wch:24},{wch:14},{wch:34},{wch:16},{wch:16},{wch:18},{wch:16},{wch:14},{wch:65}];
-    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Expense Report');XLSX.writeFile(wb,'Meena_Orchid_Full_Expense_Report.xlsx');
-  }
+  const rows=[
+    ['Meena Orchid Festival Transparency Portal — Full Expense Report'],
+    ['Generated Date',new Date().toLocaleString('en-IN')],
+    ['Total Expenses',total],
+    ['Expenses Done',done],
+    ['Remaining',remaining],
+    [],
+    ['Sr No','Festival / Category','Date','Expense Name','Total Amount','Advance','Expenses Done','Remaining','Status','Bill / Receipt']
+  ];
+  const links=[];
+  source.forEach((x,i)=>{const n=expenseNumbers(x);rows.push([i+1,fm.get(x.festival_id)||'',date(x.expense_date),x.expense_name||'',amount(x.total_amount),amount(x.advance_amount),n.done,n.remaining,x.expense_status||'Pending',x.bill_url?'Open bill':'']);if(x.bill_url)links.push({row:rows.length,url:x.bill_url});});
+  if(!source.length)rows.push(['','No expense records','','','','','','','','']);
+  const ws=XLSX.utils.aoa_to_sheet(rows);styleWorkbook(ws,[8,24,14,36,16,16,18,16,14,65]);
+  links.forEach(x=>setHyperlink(ws,`J${x.row}`,x.url));
+  ws['!freeze']={xSplit:0,ySplit:7};
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Expense Report');XLSX.writeFile(wb,'Meena_Orchid_Full_Expense_Report.xlsx');
 }
 
 function updateExportVisibility(){
   supabase.auth.getSession().then(({data:{session}})=>{
-    $('downloadCollectionsExcel')?.classList.toggle('hidden',!session);
-    $('downloadExpensesExcel')?.classList.toggle('hidden',!session);
+    createExportButtons();
+    document.querySelectorAll('[data-export-button]').forEach(b=>b.classList.toggle('hidden',!session));
   });
 }
 
-document.addEventListener('DOMContentLoaded',()=>{
-  $('downloadCollectionsExcel')?.addEventListener('click',downloadCollections);
-  $('downloadExpensesExcel')?.addEventListener('click',downloadExpenses);
+function init(){
+  createExportButtons();
   updateExportVisibility();
   supabase.auth.onAuthStateChange(()=>setTimeout(updateExportVisibility,100));
-});
+}
+
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
