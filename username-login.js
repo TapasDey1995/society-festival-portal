@@ -3,7 +3,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 const SUPABASE_URL='https://suvwxkjytbmpxaqovulq.supabase.co';
 const SUPABASE_KEY='sb_publishable_lY775k5ntfdC5TnfhfBJLg_ioQaD1iY';
 const USERNAME_EMAILS={
-  tapas:'tapas@meenaorchid.local'
+  tapas:'tapas@meenaorchid.local',
+  committee:'committee@meenaorchid.local'
 };
 const authClient=createClient(SUPABASE_URL,SUPABASE_KEY);
 
