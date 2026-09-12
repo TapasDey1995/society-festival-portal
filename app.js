@@ -3,6 +3,7 @@ const SUPABASE_URL='https://suvwxkjytbmpxaqovulq.supabase.co';
 const SUPABASE_KEY='sb_publishable_lY775k5ntfdC5TnfhfBJLg_ioQaD1iY';
 const SOCIETY_ID='5917571c-e36e-44b1-898a-212b8989c6ff';
 const LOGIN_EMAIL='tapas@meenaorchid.local'; const TOTAL_FLATS=136;
+const USERNAME_EMAILS={tapas:'tapas@meenaorchid.local',committee:'committee@meenaorchid.local'};
 const DOCUMENT_BUCKET='festival-documents';
 const supabase=createClient(SUPABASE_URL,SUPABASE_KEY); const $=id=>document.getElementById(id);
 const money=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(Number(n||0));
@@ -66,18 +67,18 @@ function renderCollections(){
   if(!search||!festivalFilter||!typeFilter||!modeFilter||!statusFilter||!body||!actionHead)return;
   const q=(search.value||'').trim().toLowerCase(),festival=festivalFilter.value,type=typeFilter.value,mode=modeFilter.value,status=statusFilter.value;
   const rows=collections.filter(x=>{const text=`${x.festivals?.name||''} ${x.members?.block_no||''} ${x.members?.flat_no||''} ${x.members?.name||''} ${x.receipt_no||''}`.toLowerCase();return (!q||text.includes(q))&&(!festival||x.festival_id===festival)&&(!type||x.collection_type===type)&&(!mode||x.payment_mode===mode)&&(!status||x.status===status);});
-  const staff=!!profile&&['admin','treasurer','committee'].includes(profile.role); actionHead.classList.toggle('hidden',!staff);
+  const staff=isStaff(); actionHead.classList.toggle('hidden',!staff);
   body.innerHTML=rows.map((x,i)=>{const receipt=x.receipt_url||x.file_upload_url;const download=x.receipt_download_url;return `<tr><td>${i+1}</td><td>${formatDate(x.collection_date)}</td><td>${esc(x.members?.block_no||'')}</td><td>${esc(x.members?.flat_no||'')}</td><td>${esc(x.members?.name||x.notes||'')}</td><td>${money(x.amount)}</td><td>${esc(x.payment_mode||'')}</td><td><span class="status ${x.status==='Cancelled'?'cancelled':x.status==='Progress'?'progress-status':'paid'}">${esc(x.status||'')}</span></td><td>${esc(x.receipt_no||'')}</td><td>${esc(x.transaction_id||'')}</td><td>${receipt?`<a href="${safeUrl(receipt)}" target="_blank" rel="noopener">View file</a>`:'—'}</td><td>${esc(x.collection_type||'')}</td><td>${download?`<a href="${safeUrl(download)}" target="_blank" rel="noopener">Download</a>`:'—'}</td>${staff?`<td><button class="secondary edit-collection" data-id="${x.id}">Edit</button></td>`:''}</tr>`;}).join('')||emptyRow(staff?14:13,'No collections match the filters');
   document.querySelectorAll('.edit-collection').forEach(b=>b.onclick=()=>editCollection(b.dataset.id));
 }
 
 function renderExpenses(){
-  const q=($('expenseSearch').value||'').toLowerCase(),filter=$('expenseFestivalFilter').value,selected=festivals.filter(f=>!filter||f.id===filter),staff=!!profile&&['admin','treasurer','committee'].includes(profile.role);
+  const q=($('expenseSearch').value||'').toLowerCase(),filter=$('expenseFestivalFilter').value,selected=festivals.filter(f=>!filter||f.id===filter),staff=isStaff();
   $('expenseGroups').innerHTML=selected.map(f=>{const rows=expenses.filter(x=>x.festival_id===f.id&&(!q||`${x.expense_name||''} ${f.name}`.toLowerCase().includes(q)));const total=rows.reduce((a,x)=>a+Number(x.total_amount||0),0);const paid=rows.reduce((a,x)=>a+expenseNumbers(x).paid,0);return `<div class="expense-group"><div class="group-head"><h3>${esc(f.name)}</h3><div class="expense-totals" style="display:flex;justify-content:space-between;align-items:center;gap:20px;"><span>Total Expenses: <strong>${money(total)}</strong></span><span>Expenses Done: <strong>${money(paid)}</strong></span></div></div><div class="table-wrap"><table><thead><tr><th>Sr No</th><th>Date</th><th>Expense Name</th><th>Total Amount</th><th>Advance</th><th>Expenses Done</th><th>Remaining</th><th>Status</th><th>Bill / Receipt File</th></tr></thead><tbody>${rows.map((x,i)=>{const n=expenseNumbers(x);return `<tr><td>${i+1}</td><td>${formatDate(x.expense_date)}</td><td>${esc(x.expense_name)}</td><td>${money(x.total_amount)}</td><td>${money(x.advance_amount)}</td><td>${money(n.paid)}</td><td>${money(n.remaining)}</td><td>${staff?`<select class="expense-status" data-id="${x.id}"><option ${x.expense_status==='Clear'?'selected':''}>Clear</option><option ${x.expense_status!=='Clear'?'selected':''}>Pending</option></select>`:`<span class="status ${x.expense_status==='Clear'?'paid':'progress-status'}">${esc(x.expense_status||'Pending')}</span>`}</td><td>${x.bill_url?`<a href="${safeUrl(x.bill_url)}" target="_blank" rel="noopener">View file</a>`:'—'}</td></tr>`;}).join('')||emptyRow(9,'No expenses in this category')}</tbody></table></div></div>`;}).join('')||'<p class="muted">No expense categories.</p>';
   document.querySelectorAll('.expense-status').forEach(s=>s.onchange=()=>updateExpenseStatus(s.dataset.id,s.value));
 }
 
-async function updateExpenseStatus(id,status){const {error}=await supabase.from('expenses').update({expense_status:status,updated_at:new Date().toISOString()}).eq('id',id);finishAdmin(error,error?'':'Expense status updated.');if(!error)await load();}
+async function updateExpenseStatus(id,status){const {error}=await supabase.from('expenses').update({expense_status:status,updated_at:new Date().toISOString()});finishAdmin(error,error?'':'Expense status updated.');if(!error)await load();}
 function renderSchedule(){$('scheduleBody').innerHTML=schedules.map(x=>`<tr><td><strong>${esc(x.festivals?.name||'')}</strong></td><td>${formatDate(x.schedule_date)}</td><td>${esc(x.event_time||'')}</td><td>${esc(x.title)}</td><td>${esc(x.description||'')}</td></tr>`).join('')||emptyRow(5,'Schedule will appear here once entries are added');}
 
 function fillSelects(){
@@ -112,9 +113,34 @@ function formMessage(id,text,error=false){const el=$(id);if(el){el.textContent=t
 
 async function refreshAuth(){
   const {data:{session}}=await supabase.auth.getSession();
-  $('loginBtn').classList.toggle('hidden',!!session);$('logoutBtn').classList.toggle('hidden',!session);$('userBadge').classList.toggle('hidden',!session);profile=null;
-  if(session){const {data}=await supabase.from('user_profiles').select('*').eq('id',session.user.id).single();profile=data;$('userBadge').textContent=data?.full_name||'Tapas';$('roleBadge').textContent=data?.role||'resident';const staff=isStaff();$('adminTab').classList.toggle('hidden',!staff);if($('showCollectionForm'))$('showCollectionForm').classList.toggle('hidden',!staff);if($('showExpenseForm'))$('showExpenseForm').classList.toggle('hidden',!staff);renderCollections();renderExpenses();if(!staff&&location.hash==='#admin')showPage('dashboard');}else{$('adminTab').classList.add('hidden');$('collectionActionHead').classList.add('hidden');if($('showCollectionForm'))$('showCollectionForm').classList.add('hidden');if($('showExpenseForm'))$('showExpenseForm').classList.add('hidden');if(location.hash==='#admin')showPage('dashboard');}
+  $('loginBtn').classList.toggle('hidden',!!session);$('logoutBtn').classList.toggle('hidden',!session);$('userBadge').classList.toggle('hidden',!session);
+  profile=null;
+  if(session){
+    const {data,error}=await supabase.from('user_profiles').select('*').eq('id',session.user.id).maybeSingle();
+    if(data){
+      profile=data;
+    }else if(session.user.email===USERNAME_EMAILS.committee){
+      profile={id:session.user.id,society_id:SOCIETY_ID,full_name:'Meena Orchid Committee',role:'committee'};
+      console.warn('Committee profile fallback used:',error?.message||'profile not returned');
+    }else if(session.user.email===USERNAME_EMAILS.tapas){
+      profile={id:session.user.id,society_id:SOCIETY_ID,full_name:'Tapas',role:'admin'};
+    }
+    $('userBadge').textContent=profile?.full_name||session.user.email||'User';
+    $('roleBadge').textContent=profile?.role||'resident';
+    const staff=isStaff();
+    $('adminTab').classList.toggle('hidden',!staff);
+    if($('showCollectionForm'))$('showCollectionForm').classList.toggle('hidden',!staff);
+    if($('showExpenseForm'))$('showExpenseForm').classList.toggle('hidden',!staff);
+    renderCollections();renderExpenses();
+    if(!staff&&location.hash==='#admin')showPage('dashboard');
+  }else{
+    $('adminTab').classList.add('hidden');$('collectionActionHead').classList.add('hidden');
+    if($('showCollectionForm'))$('showCollectionForm').classList.add('hidden');
+    if($('showExpenseForm'))$('showExpenseForm').classList.add('hidden');
+    if(location.hash==='#admin')showPage('dashboard');
+  }
 }
+window.refreshAuth=refreshAuth;
 
 async function addMember(ev){ev.preventDefault();const {error}=await supabase.from('members').insert({society_id:SOCIETY_ID,block_no:$('memberBlock').value.trim(),flat_no:$('memberFlat').value.trim(),name:$('memberName').value.trim()});finishAdmin(error,'Member saved.');if(!error){ev.target.reset();await load();}}
 
@@ -143,5 +169,5 @@ if($('quickExpenseForm'))$('quickExpenseForm').onsubmit=addQuickExpense;
 if($('showCollectionForm'))$('showCollectionForm').onclick=()=>{$('quickCollectionPanel').classList.toggle('hidden');};
 if($('showExpenseForm'))$('showExpenseForm').onclick=()=>{$('quickExpensePanel').classList.toggle('hidden');};
 document.querySelectorAll('.main-tabs .tab').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
-$('authForm').onsubmit=async e=>{e.preventDefault();const username=$('loginUser').value.trim(),password=$('password').value;const email=username.toLowerCase()==='tapas'?LOGIN_EMAIL:username;const result=await supabase.auth.signInWithPassword({email,password});$('authMessage').textContent=result.error?result.error.message:'Logged in successfully.';if(!result.error){$('authPanel').classList.add('hidden');await refreshAuth();showPage('admin');await load();}};
+$('authForm').onsubmit=async e=>{e.preventDefault();const username=$('loginUser').value.trim().toLowerCase(),password=$('password').value;const email=USERNAME_EMAILS[username]||username;const result=await supabase.auth.signInWithPassword({email,password});$('authMessage').textContent=result.error?result.error.message:'Logged in successfully.';if(!result.error){$('authPanel').classList.add('hidden');await refreshAuth();showPage('admin');await load();}};
 (async()=>{await refreshAuth();await load();})();
