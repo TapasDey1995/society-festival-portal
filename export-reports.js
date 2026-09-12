@@ -47,17 +47,21 @@ function setHyperlink(ws,cell,url){if(url&&ws[cell])ws[cell].l={Target:url,Toolt
 
 async function downloadCollections(){
   if(!await ensureLoggedIn())return;
+  // collections table does not have society_id; scope records through its member/festival relationships.
   const [{data,error},{data:members},{data:festivals}]=await Promise.all([
-    supabase.from('collections').select('*').eq('society_id',SOCIETY_ID).order('collection_date',{ascending:true}).order('created_at',{ascending:true}),
+    supabase.from('collections').select('*').order('collection_date',{ascending:true}).order('created_at',{ascending:true}),
     supabase.from('members').select('id,block_no,flat_no,name').eq('society_id',SOCIETY_ID),
     supabase.from('festivals').select('id,name').eq('society_id',SOCIETY_ID)
   ]);
   if(error){alert('Unable to load collection records: '+error.message);return;}
+  const memberIds=new Set((members||[]).map(x=>x.id));
+  const festivalIds=new Set((festivals||[]).map(x=>x.id));
   const mm=new Map((members||[]).map(x=>[x.id,x]));
   const fm=new Map((festivals||[]).map(x=>[x.id,x.name]));
+  const filtered=(data||[]).filter(x=>(x.member_id&&memberIds.has(x.member_id))||(x.festival_id&&festivalIds.has(x.festival_id)));
   const rows=[['Sr No','Date','Festival','Block','Flat','Name','Amount','Payment Mode','Status','Receipt No','Transaction ID','Collection Type','Receipt / File','Receipt Download']];
   const links=[];
-  (data||[]).forEach((x,i)=>{
+  filtered.forEach((x,i)=>{
     const receipt=x.receipt_url||x.file_upload_url||'';
     const download=x.receipt_download_url||receipt;
     rows.push([i+1,date(x.collection_date),fm.get(x.festival_id)||'',mm.get(x.member_id)?.block_no||'',mm.get(x.member_id)?.flat_no||'',mm.get(x.member_id)?.name||x.notes||'',amount(x.amount),x.payment_mode||'',x.status||'',x.receipt_no||'',x.transaction_id||'',x.collection_type||'',receipt?'Open receipt':'',download?'Download receipt':'']);
@@ -72,13 +76,15 @@ async function downloadCollections(){
 
 async function downloadExpenses(){
   if(!await ensureLoggedIn())return;
+  // expenses table does not have society_id; festival_id identifies the society's festival categories.
   const [{data,error},{data:festivals}]=await Promise.all([
-    supabase.from('expenses').select('*').eq('society_id',SOCIETY_ID).order('expense_date',{ascending:true}).order('created_at',{ascending:true}),
+    supabase.from('expenses').select('*').order('expense_date',{ascending:true}).order('created_at',{ascending:true}),
     supabase.from('festivals').select('id,name').eq('society_id',SOCIETY_ID)
   ]);
   if(error){alert('Unable to load expense records: '+error.message);return;}
   const fm=new Map((festivals||[]).map(x=>[x.id,x.name]));
-  const source=data||[];
+  const festivalIds=new Set((festivals||[]).map(x=>x.id));
+  const source=(data||[]).filter(x=>!x.festival_id||festivalIds.has(x.festival_id));
   const total=source.reduce((a,x)=>a+amount(x.total_amount),0);
   const done=source.reduce((a,x)=>a+expenseNumbers(x).done,0);
   const remaining=source.reduce((a,x)=>a+expenseNumbers(x).remaining,0);
