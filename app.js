@@ -150,12 +150,13 @@ function renderCollections(){
       ${x.receipt_no||''}
     `.toLowerCase();
 
-    return
-      (!q||text.includes(q))&&
-      (!festival||x.festival_id===festival)&&
-      (!type||x.collection_type===type)&&
-      (!mode||x.payment_mode===mode)&&
-      (!status||x.status===status);
+    return (
+  (!q||text.includes(q))&&
+  (!festival||x.festival_id===festival)&&
+  (!type||x.collection_type===type)&&
+  (!mode||x.payment_mode===mode)&&
+  (!status||x.status===status)
+);
   });
 
   const staff=!!profile&&['admin','treasurer','committee'].includes(profile.role);
