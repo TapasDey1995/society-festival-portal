@@ -89,7 +89,7 @@ async function downloadExpenses(){
   if(festivalError){alert('Unable to load society festivals: '+festivalError.message);return;}
   if(collectionError){alert('Unable to load collection records: '+collectionError.message);return;}
 
-  const festivalList=['15th Aug','Ganesh Puja','Durga Puja','Lakshmi Puja'];
+  const festivalList=['15th Aug','Ganesh Puja','Durga Puja','Lakshmi Puja','Other Expenses'];
   const festivalIdMap=new Map((festivals||[]).map(x=>[x.id,x.name]));
   const source=(data||[]).filter(x=>x.festival_id && festivalIdMap.has(x.festival_id));
   const byFestival={};
@@ -97,7 +97,7 @@ async function downloadExpenses(){
 
   // Collection total = every amount currently recorded in the Collection tab.
   const totalCollection=(collections||[]).reduce((sum,x)=>sum+amount(x.amount),0);
-  // For each festival, Clear expenses count the full total amount; Pending expenses count only advance paid till date.
+  // Clear expenses count the full total amount; Pending expenses count only advance paid till date.
   const festivalExpenses={};
   festivalList.forEach(name=>{
     festivalExpenses[name]=byFestival[name].reduce((sum,x)=>sum+expenseNumbers(x).done,0);
@@ -115,6 +115,7 @@ async function downloadExpenses(){
     ['Ganesh Puja Expenses',festivalExpenses['Ganesh Puja']],
     ['Durga Puja Expenses',festivalExpenses['Durga Puja']],
     ['Lakshmi Puja Expenses',festivalExpenses['Lakshmi Puja']],
+    ['Other Expenses',festivalExpenses['Other Expenses']],
     ['Remaining Balance',remainingFund]
   ];
   const main=XLSX.utils.aoa_to_sheet(mainRows);
