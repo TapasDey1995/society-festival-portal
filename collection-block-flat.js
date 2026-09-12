@@ -8,6 +8,17 @@ function syncCollectionMember(form, blockId, flatId, memberId){
   select.value=match?match.value:'';
 }
 
+function hideCollectionFestivalDropdowns(){
+  ['quickCollectionFestival','collectionFestival'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){
+      el.style.display='none';
+      el.setAttribute('aria-hidden','true');
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded',hideCollectionFestivalDropdowns);
 document.addEventListener('submit',event=>{
   const form=event.target;
   if(form?.id==='quickCollectionForm') syncCollectionMember(form,'quickCollectionBlock','quickCollectionFlat','quickCollectionMember');
