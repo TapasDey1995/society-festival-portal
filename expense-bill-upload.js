@@ -71,7 +71,6 @@ function init(){
   const container=document.getElementById('expenseGroups');
   if(container)observer.observe(container,{childList:true,subtree:true});
   decorateExpenseRows();
-  // Cache-busted import so the corrected export code is always loaded.
-  import('./export-reports.js?v=20260913');
+  import('./export-reports.js?v=20260914');
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
