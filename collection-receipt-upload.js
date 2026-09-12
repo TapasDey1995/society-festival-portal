@@ -40,7 +40,7 @@ function decorateReceiptCells(){
     const existingUrl=receiptLink?.getAttribute('href')||'';
     const id=row.querySelector('.edit-collection')?.dataset.id;
     if(!id)return;
-    cells[10].innerHTML=`${existingUrl?`<a href="${esc(existingUrl)}" target="_blank" rel="noopener">View file</a><br/>`:'<span class="muted">No file</span><br/>'}<span class="receipt-upload-wrap"><label class="file-help" style="display:inline-block;cursor:pointer;margin-top:4px;">${existingUrl?'Replace receipt':'Upload receipt'}<input class="collection-receipt-upload" data-id="${esc(id)}" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" style="display:block;margin-top:4px;max-width:190px;"/></label><span class="receipt-upload-status muted" style="display:block;font-size:12px;"></span></span>`;
+    cells[10].innerHTML=`${existingUrl?`<a href="${esc(existingUrl)}" target="_blank" rel="noopener">View receipt</a><br/>`:'<span class="muted">No receipt uploaded</span><br/>'}<span class="receipt-upload-wrap"><label style="display:inline-block;cursor:pointer;margin-top:6px;padding:7px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;font-size:13px;font-weight:600;">${existingUrl?'Replace receipt':'Upload receipt'}<input class="collection-receipt-upload" data-id="${esc(id)}" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none"/></label><span class="receipt-upload-status muted" style="display:block;font-size:12px;margin-top:4px;"></span></span>`;
   });
   body.querySelectorAll('.collection-receipt-upload').forEach(input=>{
     input.onchange=async()=>{
