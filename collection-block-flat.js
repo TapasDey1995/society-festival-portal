@@ -24,3 +24,6 @@ document.addEventListener('submit',event=>{
   if(form?.id==='quickCollectionForm') syncCollectionMember(form,'quickCollectionBlock','quickCollectionFlat','quickCollectionMember');
   if(form?.id==='collectionForm') syncCollectionMember(form,'collectionBlock','collectionFlat','collectionMember');
 },true);
+
+// Load the committee-only receipt upload/replace controls for existing collection rows.
+import('./collection-receipt-upload.js');
