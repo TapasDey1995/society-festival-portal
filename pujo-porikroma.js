@@ -25,20 +25,28 @@ async function loadGallery(){
   root.innerHTML=groups.map(group=>`<section class="porikroma-frame"><h3>${esc(group.header)}</h3><div class="porikroma-grid">${group.images.map(item=>`<a class="porikroma-photo" href="${esc(item.image_url)}" target="_blank" rel="noopener"><img src="${esc(item.image_url)}" alt="${esc(group.header)}" loading="lazy"/></a>`).join('')}</div></section>`).join('');
 }
 
+async function getProfile(){
+  const {data:{session}}=await supabase.auth.getSession();
+  if(!session)return null;
+  const {data}=await supabase.from('user_profiles').select('role,society_id').eq('id',session.user.id).maybeSingle();
+  return data||null;
+}
+
+async function refreshAdminPanel(){
+  const panel=$('porikromaAdminPanel');
+  if(!panel)return;
+  const profile=await getProfile();
+  panel.classList.toggle('hidden',!isStaff(profile));
+}
+
 async function init(){
   const form=$('porikromaAdminForm');
-  const panel=$('porikromaAdminPanel');
   const message=$('porikromaMessage');
-  const {data:{session}}=await supabase.auth.getSession();
-  let profile=null;
-  if(session){
-    const {data}=await supabase.from('user_profiles').select('role,society_id').eq('id',session.user.id).maybeSingle();
-    profile=data;
-  }
-  if(panel)panel.classList.toggle('hidden',!isStaff(profile));
+  await refreshAdminPanel();
   if(form){
     form.addEventListener('submit',async ev=>{
       ev.preventDefault();
+      const profile=await getProfile();
       if(!isStaff(profile)){if(message)message.textContent='Committee login required.';return;}
       const header=$('porikromaHeader').value.trim();
       const file=$('porikromaImage').files?.[0];
@@ -58,6 +66,7 @@ async function init(){
       await loadGallery();
     });
   }
+  supabase.auth.onAuthStateChange(()=>{setTimeout(refreshAdminPanel,0);});
   await loadGallery();
 }
 
