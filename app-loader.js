@@ -11,7 +11,7 @@
         "festivals=f.data||[];members=m.data||[];collections=c.data||[];expenses=e.data||[];schedules=s.data||[];const festivalMap=new Map(festivals.map(x=>[x.id,x]));const memberMap=new Map(members.map(x=>[x.id,x]));collections=collections.map(x=>({...x,festivals:festivalMap.get(x.festival_id)||null,members:memberMap.get(x.member_id)||null}));expenses=expenses.map(x=>({...x,festivals:festivalMap.get(x.festival_id)||null}));schedules=schedules.map(x=>({...x,festivals:festivalMap.get(x.festival_id)||null}));renderAll();fillSelects();");
     const blob=new Blob([fixed],{type:'text/javascript'});
     await import(URL.createObjectURL(blob));
-    await import('./dashboard-collection-breakup.js?v=20260913');
+    await import('./dashboard-collection-breakup.js?v=20260914');
   }catch(error){
     console.error('Portal loader error',error);
     const message=document.getElementById('adminMessage');
