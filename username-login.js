@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
+import './export-reports.js?v=20260916';
 
 const SUPABASE_URL='https://suvwxkjytbmpxaqovulq.supabase.co';
 const SUPABASE_KEY='sb_publishable_lY775k5ntfdC5TnfhfBJLg_ioQaD1iY';
