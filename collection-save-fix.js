@@ -58,6 +58,8 @@ async function saveCollection(form){
   const payload={
     festival_id:festivalId,
     member_id:null,
+    block_no:block,
+    flat_no:flat,
     collection_type:collectionType,
     collection_date:date,
     amount,
