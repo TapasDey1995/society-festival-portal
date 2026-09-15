@@ -25,6 +25,15 @@ function styleWorkbook(ws,cols){ws['!cols']=cols.map(wch=>({wch}));}
 function setHyperlink(ws,cell,url,label='Download / Open'){if(!url)return;if(!ws[cell])ws[cell]={t:'s',v:label};ws[cell].l={Target:url,Tooltip:'Open supporting document'};ws[cell].s={font:{color:{rgb:'0563C1'},underline:true}};}
 function titleStyle(ws,lastCol){ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:lastCol}}];if(ws.A1)ws.A1.s={font:{bold:true,sz:16},alignment:{horizontal:'center'}};}
 
+function parseBlockFlat(notes){
+  const text=String(notes||'');
+  return {
+    block:text.match(/Block\s+([^|]+)/i)?.[1]?.trim()||'',
+    flat:text.match(/Flat\s+([^|]+)/i)?.[1]?.trim()||'',
+    name:text.split('|')[0]?.trim()||''
+  };
+}
+
 async function downloadCollections(){
   if(!await ensureLoggedIn())return;
   const [{data,error},{data:members,error:memberError},{data:festivals,error:festivalError}]=await Promise.all([
@@ -35,17 +44,21 @@ async function downloadCollections(){
   if(error){alert('Unable to load collection records: '+error.message);return;}
   if(memberError){alert('Unable to load society members: '+memberError.message);return;}
   if(festivalError){alert('Unable to load society festivals: '+festivalError.message);return;}
-  const memberIds=new Set((members||[]).map(x=>x.id));
-  const festivalIds=new Set((festivals||[]).map(x=>x.id));
   const mm=new Map((members||[]).map(x=>[x.id,x]));
   const fm=new Map((festivals||[]).map(x=>[x.id,x.name]));
-  const filtered=(data||[]).filter(x=>(x.member_id&&memberIds.has(x.member_id))||(x.festival_id&&festivalIds.has(x.festival_id)));
+  // collections has no society_id, so do not discard records merely because member_id is null.
+  // This is important for records entered directly through the portal Add Collection form.
   const rows=[['Sr No','Date','Festival','Block','Flat','Name','Amount','Payment Mode','Status','Receipt No','Transaction ID','Collection Type','Receipt / Attached File','Receipt Download']];
   const links=[];
-  filtered.forEach((x,i)=>{
+  (data||[]).forEach((x,i)=>{
+    const parsed=parseBlockFlat(x.notes);
+    const member=mm.get(x.member_id);
+    const block=member?.block_no||x.block_no||parsed.block||'';
+    const flat=member?.flat_no||x.flat_no||parsed.flat||'';
+    const name=member?.name||parsed.name||'';
     const receipt=x.receipt_url||x.file_upload_url||'';
     const download=x.receipt_download_url||receipt;
-    rows.push([i+1,date(x.collection_date),fm.get(x.festival_id)||'',mm.get(x.member_id)?.block_no||x.block_no||'',mm.get(x.member_id)?.flat_no||x.flat_no||'',mm.get(x.member_id)?.name||x.notes||'',amount(x.amount),x.payment_mode||'',x.status||'',x.receipt_no||'',x.transaction_id||'',x.collection_type||'',receipt?'Open attached file':'',download?'Download file':'']);
+    rows.push([i+1,date(x.collection_date),fm.get(x.festival_id)||'',block,flat,name,amount(x.amount),x.payment_mode||'',x.status||'',x.receipt_no||'',x.transaction_id||'',x.collection_type||'',receipt?'Open attached file':'',download?'Download file':'']);
     links.push({row:i+2,receipt,download});
   });
   if(rows.length===1)rows.push(['','','No collection records','','','','','','','','','','','']);
