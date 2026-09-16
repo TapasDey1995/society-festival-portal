@@ -8,7 +8,7 @@ const TAPAS_EMAIL='tapas@meenaorchid.local';
 const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
 const $=id=>document.getElementById(id);
 
-function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
+function esc(v){return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[c]));}
 function isStaff(profile){return ['admin','treasurer','committee'].includes(profile?.role);}
 
 async function getProfile(){
@@ -29,7 +29,9 @@ async function loadScheduleCards(){
     return;
   }
   const rows=data||[];
-  $('scheduleCards').innerHTML=rows.map(x=>`<article class="schedule-card-item"><h3>${esc(x.header)}</h3><div class="schedule-card-content">${esc(x.content).replace(/\n/g,'<br>')}</div></article>`).join('')||'<div class="schedule-empty muted">No puja schedule has been added yet.</div>';
+  const root=$('scheduleCards');
+  if(!root)return;
+  root.innerHTML=rows.map(x=>`<article class="schedule-card-item"><h3>${esc(x.header)}</h3><div class="schedule-card-content">${esc(x.content).replace(/\n/g,'<br>')}</div></article>`).join('')||'<div class="schedule-empty muted">No puja schedule has been added yet.</div>';
 }
 
 async function syncStaffUi(){
@@ -49,10 +51,10 @@ async function addScheduleCard(ev){
   const {data:last}=await supabase.from('puja_schedule_cards').select('sort_order').eq('society_id',SOCIETY_ID).order('sort_order',{ascending:false}).limit(1).maybeSingle();
   const nextOrder=Number(last?.sort_order||0)+1;
   const {error}=await supabase.from('puja_schedule_cards').insert({society_id:SOCIETY_ID,header,content,sort_order:nextOrder,updated_at:new Date().toISOString()});
-  if(error){setMessage(error.message,true);return;}
+  if(error){setMessage('Could not save schedule: '+error.message,true);return;}
   ev.target.reset();
   setMessage('Schedule added successfully.');
-  $('quickSchedulePanel').classList.add('hidden');
+  $('quickSchedulePanel')?.classList.add('hidden');
   await loadScheduleCards();
 }
 
@@ -63,7 +65,7 @@ function setMessage(text,error=false){
 
 function init(){
   $('showScheduleForm')?.addEventListener('click',()=>{
-    $('quickSchedulePanel').classList.toggle('hidden');
+    $('quickSchedulePanel')?.classList.toggle('hidden');
     setMessage('');
   });
   $('quickScheduleForm')?.addEventListener('submit',addScheduleCard);
@@ -72,4 +74,4 @@ function init(){
   supabase.auth.onAuthStateChange(()=>setTimeout(syncStaffUi,100));
 }
 
-document.addEventListener('DOMContentLoaded',init);
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
