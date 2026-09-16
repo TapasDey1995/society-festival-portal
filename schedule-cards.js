@@ -9,37 +9,22 @@ const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
 const $=id=>document.getElementById(id);
 
 function esc(v){return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[c]));}
-function isStaff(profile){return ['admin','treasurer','committee'].includes(profile?.role);}
+function isStaff(p){return ['admin','treasurer','committee'].includes(p?.role);}
+function msg(t,bad=false){const e=$('scheduleCardMessage');if(e){e.textContent=t;e.classList.toggle('negative',bad);}}
 
-function setMessage(text,error=false){
-  const el=$('scheduleCardMessage');
-  if(el){el.textContent=text;el.classList.toggle('negative',error);}
-}
+// Use event delegation on document. This keeps working even if another script
+// replaces/recreates the schedule button after this module loads.
+document.addEventListener('click',e=>{
+  const b=e.target.closest?.('#showScheduleForm');
+  if(!b)return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const p=$('quickSchedulePanel');
+  if(p)p.classList.toggle('hidden');
+  msg('');
+},true);
 
-// Bind the button immediately at module evaluation time. This deliberately
-// does not depend on DOMContentLoaded because this file is loaded as a module
-// at the bottom of index.html, after the schedule markup already exists.
-function bindScheduleButton(){
-  const button=$('showScheduleForm');
-  const panel=$('quickSchedulePanel');
-  if(!button || !panel) return false;
-  if(button.dataset.scheduleBound==='1') return true;
-  button.dataset.scheduleBound='1';
-  button.addEventListener('click',function(ev){
-    ev.preventDefault();
-    ev.stopPropagation();
-    panel.classList.toggle('hidden');
-    setMessage('');
-  });
-  return true;
-}
-
-bindScheduleButton();
-document.addEventListener('DOMContentLoaded',bindScheduleButton,{once:true});
-setTimeout(bindScheduleButton,0);
-setTimeout(bindScheduleButton,300);
-
-async function getProfile(){
+async function profile(){
   const {data:{session}}=await supabase.auth.getSession();
   if(!session)return null;
   const {data}=await supabase.from('user_profiles').select('*').eq('id',session.user.id).maybeSingle();
@@ -49,66 +34,44 @@ async function getProfile(){
   return null;
 }
 
-async function loadScheduleCards(){
+async function load(){
   const target=$('scheduleCards');
   if(!target)return;
   const {data,error}=await supabase.from('puja_schedule_cards').select('*').eq('society_id',SOCIETY_ID).order('sort_order').order('created_at');
-  if(error){
-    console.error('Schedule cards load error:',error);
-    target.innerHTML='<p class="muted">Unable to load puja schedule.</p>';
-    return;
-  }
-  const rows=data||[];
-  target.innerHTML=rows.map(x=>`<article class="schedule-card-item"><h3>${esc(x.header)}</h3><div class="schedule-card-content">${esc(x.content).replace(/\n/g,'<br>')}</div></article>`).join('')||'<div class="schedule-empty muted">No puja schedule has been added yet.</div>';
+  if(error){console.error(error);target.innerHTML='<p class="muted">Unable to load puja schedule.</p>';return;}
+  target.innerHTML=(data||[]).map(x=>`<article class="schedule-card-item"><h3>${esc(x.header)}</h3><div class="schedule-card-content">${esc(x.content).replace(/\n/g,'<br>')}</div></article>`).join('')||'<div class="schedule-empty muted">No puja schedule has been added yet.</div>';
 }
 
-async function syncStaffUi(){
-  const profile=await getProfile();
-  const staff=isStaff(profile);
-  const button=$('showScheduleForm');
-  if(button)button.classList.toggle('hidden',!staff);
-  if(!staff)$('quickSchedulePanel')?.classList.add('hidden');
-  bindScheduleButton();
+async function staffUi(){
+  const p=await profile();
+  const b=$('showScheduleForm');
+  if(b)b.classList.toggle('hidden',!isStaff(p));
+  if(!isStaff(p))$('quickSchedulePanel')?.classList.add('hidden');
 }
 
-async function addScheduleCard(ev){
-  ev.preventDefault();
-  const profile=await getProfile();
-  if(!isStaff(profile)){setMessage('Only committee members can add schedules.',true);return;}
+async function save(e){
+  e.preventDefault();
+  const p=await profile();
+  if(!isStaff(p)){msg('Committee login required.',true);return;}
   const header=$('quickScheduleHeader')?.value.trim();
   const content=$('quickScheduleContent')?.value.trim();
-  if(!header||!content){setMessage('Please enter both header and content.',true);return;}
+  if(!header||!content){msg('Please enter both header and content.',true);return;}
   const {data:last,error:lastError}=await supabase.from('puja_schedule_cards').select('sort_order').eq('society_id',SOCIETY_ID).order('sort_order',{ascending:false}).limit(1).maybeSingle();
-  if(lastError){console.error(lastError);setMessage(lastError.message,true);return;}
-  const nextOrder=Number(last?.sort_order||0)+1;
-  const {error}=await supabase.from('puja_schedule_cards').insert({society_id:SOCIETY_ID,header,content,sort_order:nextOrder,updated_at:new Date().toISOString()});
-  if(error){console.error('Schedule insert error:',error);setMessage(error.message,true);return;}
-  ev.target.reset();
-  setMessage('Schedule added successfully.');
+  if(lastError){msg(lastError.message,true);return;}
+  const {error}=await supabase.from('puja_schedule_cards').insert({society_id:SOCIETY_ID,header,content,sort_order:Number(last?.sort_order||0)+1,updated_at:new Date().toISOString()});
+  if(error){console.error(error);msg(error.message,true);return;}
+  e.target.reset();
   $('quickSchedulePanel')?.classList.add('hidden');
-  await loadScheduleCards();
+  msg('Schedule added successfully.');
+  await load();
 }
 
-function bindForm(){
-  const form=$('quickScheduleForm');
-  if(form && form.dataset.scheduleBound!=='1'){
-    form.dataset.scheduleBound='1';
-    form.addEventListener('submit',addScheduleCard);
-  }
-}
+document.addEventListener('submit',e=>{if(e.target?.id==='quickScheduleForm'){e.stopImmediatePropagation();save(e);}},true);
 
 async function init(){
-  bindScheduleButton();
-  bindForm();
-  await loadScheduleCards();
-  await syncStaffUi();
-  bindScheduleButton();
+  await staffUi();
+  await load();
 }
 
-if(document.readyState==='loading'){
-  document.addEventListener('DOMContentLoaded',init,{once:true});
-}else{
-  init();
-}
-
-supabase.auth.onAuthStateChange(()=>setTimeout(()=>{syncStaffUi();bindScheduleButton();},100));
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
+supabase.auth.onAuthStateChange(()=>setTimeout(staffUi,150));
