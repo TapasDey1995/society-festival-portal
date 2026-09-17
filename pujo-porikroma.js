@@ -50,7 +50,7 @@ function injectAdminPaymentPdfButton(){
   const wrap=document.createElement('div');
   wrap.id='adminFlatPaymentPdfWrap';
   wrap.style.cssText='display:flex;justify-content:flex-end;gap:10px;margin:0 0 14px;';
-  wrap.innerHTML='<button id="adminFlatPaymentPdfBtn" type="button" class="secondary hidden">Import Flat Owner Payment PDF</button><span id="adminFlatPaymentPdfMessage" class="muted" style="align-self:center"></span>';
+  wrap.innerHTML='<button id="adminFlatPaymentPdfBtn" type="button" class="secondary hidden">Generate Flat Owner Payment PDF</button><span id="adminFlatPaymentPdfMessage" class="muted" style="align-self:center"></span>';
   const head=page.querySelector('.section-head');
   if(head)head.insertAdjacentElement('afterend',wrap);else{const card=page.querySelector('.card');if(card)card.insertBefore(wrap,card.firstChild);else return false;}
   $('adminFlatPaymentPdfBtn').addEventListener('click',generateFlatPaymentPdf);
@@ -64,10 +64,9 @@ async function refreshFlatPaymentPdfButton(){
   button.classList.toggle('hidden',profile?.role!=='admin');
 }
 
-function drawTableRow(doc,row,y,fill){
-  const x=[14,28,58,84,162,195];
-  const widths=[14,30,26,78,33,0];
-  if(fill){doc.setFillColor(220,252,231);doc.rect(14,y-5,182,7,'F');}
+function drawTableRow(doc,row,y){
+  doc.setFillColor(row.status==='Paid'?220:254,row.status==='Paid'?252:249,row.status==='Paid'?231:195);
+  doc.rect(14,y-5,182,7,'F');
   doc.setTextColor(30,30,30);doc.setFontSize(8.5);
   doc.text(String(row.sr),17,y);
   doc.text(String(row.block||''),30,y);
@@ -119,7 +118,7 @@ async function generateFlatPaymentPdf(){
     header();
     rows.forEach(row=>{
       if(y>282){doc.setFontSize(7);doc.text(`Page ${pageNo}`,105,291,{align:'center'});pageNo++;doc.addPage();header();}
-      drawTableRow(doc,row,y,row.status==='Paid');y+=7;
+      drawTableRow(doc,row,y);y+=7;
     });
     doc.setFontSize(7);doc.setTextColor(100,100,100);doc.text(`Page ${pageNo}`,105,291,{align:'center'});
     doc.save(`Meena-Orchid-Flat-Payment-Status-${new Date().toISOString().slice(0,10)}.pdf`);
