@@ -18,46 +18,46 @@ async function getAccess(){
 async function generateCollectionStatusPdf(){
   if(!(await getAccess())){alert('Admin or Committee login required.');return;}
 
-  const [{data:members,error:membersError},{data:collections,error:collectionsError}]=await Promise.all([
-    supabase.from('members').select('id,block_no,flat_no,name').eq('society_id',SOCIETY_ID).order('block_no').order('flat_no'),
-    supabase.from('collections').select('member_id,block_no,flat_no,notes,status,amount').neq('status','Cancelled')
+  // IMPORTANT: flat_owner_master is the source of truth for ALL 137 flats.
+  // collections is used only to identify paid flats and their paid amount.
+  const [{data:master,error:masterError},{data:collections,error:collectionsError}]=await Promise.all([
+    supabase.from('flat_owner_master').select('id,block_no,flat_no,owner_name').eq('society_id',SOCIETY_ID).order('block_no').order('flat_no'),
+    supabase.from('collections').select('member_id,block_no,flat_no,status,amount').neq('status','Cancelled')
   ]);
 
-  if(membersError){alert('Unable to load the master flat list: '+membersError.message);return;}
+  if(masterError){alert('Unable to load the 137-flat master list: '+masterError.message);return;}
   if(collectionsError){alert('Unable to load the collection list: '+collectionsError.message);return;}
 
-  // Master table is the source of truth for all flats. Collection table is only used to determine payment.
-  const paidByMember=new Map();
-  const paidByFlat=new Map();
   const normalise=v=>String(v??'').trim().toLowerCase().replace(/\s+/g,'');
   const flatKey=(block,flat)=>`${normalise(block)}|${normalise(flat)}`;
+  const paidByFlat=new Map();
 
   (collections||[]).forEach(c=>{
-    if(String(c.status||'').toLowerCase()!=='paid')return;
+    if(String(c.status||'').trim().toLowerCase()!=='paid')return;
+    if(c.block_no==null||c.flat_no==null)return;
+    const key=flatKey(c.block_no,c.flat_no);
     const amount=Number(c.amount||0);
-    if(c.member_id){
-      paidByMember.set(c.member_id,(paidByMember.get(c.member_id)||0)+amount);
-    }
-    if(c.block_no!=null&&c.flat_no!=null){
-      const key=flatKey(c.block_no,c.flat_no);
-      paidByFlat.set(key,(paidByFlat.get(key)||0)+amount);
-    }
+    paidByFlat.set(key,(paidByFlat.get(key)||0)+amount);
   });
 
-  const rows=(members||[]).map((m,i)=>{
+  // Every master-table row is printed. Paid = green + Paid + amount. Unpaid = yellow + blank status + blank amount.
+  const rows=(master||[]).map((m,i)=>{
     const key=flatKey(m.block_no,m.flat_no);
-    const memberAmount=paidByMember.get(m.id);
-    const flatAmount=paidByFlat.get(key);
-    const amount=memberAmount!=null?memberAmount:(flatAmount||0);
-    const paid=amount>0 || paidByMember.has(m.id) || paidByFlat.has(key);
-    return [i+1,m.flat_no||'',m.block_no||'',m.name||'',paid?'Paid':'',paid?amount.toFixed(2):''];
+    const isPaid=paidByFlat.has(key);
+    const amount=paidByFlat.get(key)||0;
+    return [i+1,m.flat_no||'',m.block_no||'',m.owner_name||'',isPaid?'Paid':'',isPaid?amount.toFixed(2):''];
   });
+
+  if(rows.length!==137){
+    alert(`Master flat list returned ${rows.length} records. Expected 137. PDF was not generated so incomplete data is not shown.`);
+    return;
+  }
 
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   doc.setFontSize(16);
   doc.text('Meena Orchid Festival Collection Status',148.5,14,{align:'center'});
   doc.setFontSize(9);
-  doc.text(`Master Flat List: ${rows.length} flats`,148.5,20,{align:'center'});
+  doc.text('Master Flat List: 137 flats',148.5,20,{align:'center'});
 
   autoTable(doc,{
     startY:25,
