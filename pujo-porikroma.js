@@ -1,5 +1,4 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
-import { jsPDF } from 'https://esm.sh/jspdf@2.5.2';
 
 const SUPABASE_URL='https://suvwxkjytbmpxaqovulq.supabase.co';
 const SUPABASE_KEY='sb_publishable_lY775k5ntfdC5TnfhfBJLg_ioQaD1iY';
@@ -44,7 +43,7 @@ async function refreshAdminPanel(){
 }
 
 function injectAdminPaymentPdfButton(){
-  if($('adminFlatPaymentPdfBtn'))return;
+  if($('adminFlatPaymentPdfBtn'))return true;
   const page=$('page-collections');
   if(!page)return false;
   const wrap=document.createElement('div');
@@ -61,7 +60,8 @@ async function refreshFlatPaymentPdfButton(){
   if(!injectAdminPaymentPdfButton())return;
   const button=$('adminFlatPaymentPdfBtn');
   const profile=await getProfile();
-  button.classList.toggle('hidden',profile?.role!=='admin');
+  if(profile?.role==='admin')button.classList.remove('hidden');
+  else button.classList.add('hidden');
 }
 
 function drawTableRow(doc,row,y){
@@ -85,6 +85,7 @@ async function generateFlatPaymentPdf(){
   if(button)button.disabled=true;
   if(message)message.textContent='Preparing PDF...';
   try{
+    const {jsPDF}=await import('https://esm.sh/jspdf@2.5.2');
     const [masterRes,membersRes,collectionsRes]=await Promise.all([
       supabase.from('flat_owner_master').select('block_no,flat_no,owner_name').eq('society_id',SOCIETY_ID).order('block_no').order('flat_no'),
       supabase.from('members').select('id,block_no,flat_no').eq('society_id',SOCIETY_ID),
