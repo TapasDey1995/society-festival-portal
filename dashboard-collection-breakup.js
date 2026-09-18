@@ -30,7 +30,7 @@ async function updateDashboardCollectionBreakup(){
   const active=(data||[]).filter(x=>x.status!=='Cancelled');
   const flatWise=active.filter(x=>x.collection_type==='Flat wise 2026 collection');
   const donation=active.filter(x=>x.collection_type==='Donation');
-  const carryForward=active.filter(x=>x.collection_type==='Last Year Carry Forward');
+  const carryForward=active.filter(x=>String(x.collection_type||'').trim().toLowerCase()==='last year carry forward'||String(x.notes||'').toLowerCase().includes('last year carry forward'));
   const total=active.reduce((sum,x)=>sum+Number(x.amount||0),0);
   const flatTotal=flatWise.reduce((sum,x)=>sum+Number(x.amount||0),0);
   const donationTotal=donation.reduce((sum,x)=>sum+Number(x.amount||0),0);
