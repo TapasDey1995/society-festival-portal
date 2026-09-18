@@ -18,17 +18,17 @@ async function getAccess(){
 async function generateCollectionStatusPdf(){
   if(!(await getAccess())){alert('Admin or Committee login required.');return;}
 
-  // flat_owner_master is the source of truth for the 136 master rows.
-  // Collections are then matched against those rows. Unmatched paid records with
-  // Block + Flat are appended at the end, using the same displayed name as Collection List.
+  // PDF order:
+  // 1) Every paid Flat-wise 2026 collection record, exactly as represented in Collection List, in GREEN.
+  // 2) All master flat-owner records that did NOT match any of those collection records, in YELLOW.
   const [
     {data:master,error:masterError},
     {data:collections,error:collectionsError},
     {data:members,error:membersError}
   ]=await Promise.all([
     supabase.from('flat_owner_master').select('id,block_no,flat_no,owner_name').eq('society_id',SOCIETY_ID).order('block_no').order('flat_no'),
-    supabase.from('collections').select('member_id,block_no,flat_no,status,amount,collection_type').neq('status','Cancelled'),
-    supabase.from('members').select('id,block_no,flat_no').eq('society_id',SOCIETY_ID)
+    supabase.from('collections').select('id,member_id,block_no,flat_no,status,amount,collection_type,notes').neq('status','Cancelled').order('receipt_no'),
+    supabase.from('members').select('id,block_no,flat_no,name').eq('society_id',SOCIETY_ID)
   ]);
 
   if(masterError){alert('Unable to load the master flat list: '+masterError.message);return;}
@@ -36,94 +36,58 @@ async function generateCollectionStatusPdf(){
   if(membersError){alert('Unable to load member mapping: '+membersError.message);return;}
 
   const normalise=v=>String(v??'').trim().toLowerCase().replace(/\s+/g,'');
-  // Master stores blocks as "BLOCK 1"/"BLOCK 2", while Collection/member records use "1"/"2".
-  // Normalize both forms to the same block number before matching.
-  const normaliseBlock=v=>{const s=normalise(v); const m=s.match(/(?:block)?(\d+)/); return m?m[1]:s;};
+  const normaliseBlock=v=>{const s=normalise(v);const m=s.match(/(?:block)?(\d+)/);return m?m[1]:s;};
   const flatKey=(block,flat)=>`${normaliseBlock(block)}|${normalise(flat)}`;
 
-  // Collection rows often store only member_id. Resolve member_id to its block/flat.
-  const memberToFlat=new Map();
-  (members||[]).forEach(m=>{
-    if(m.id!=null&&m.block_no!=null&&m.flat_no!=null){
-      memberToFlat.set(String(m.id),flatKey(m.block_no,m.flat_no));
-    }
-  });
+  const memberById=new Map((members||[]).map(m=>[String(m.id),m]));
 
-  // Build paid records from every non-donation collection type.
-  // Donation records are excluded. Any paid record with Block + Flat is considered.
-  const paidRecords=[];
-  const paidByFlat=new Map();
-  const mappedCollectionIds=new Set();
+  // Only paid, non-donation Flat-wise collection records belong in the green section.
+  // Keep EVERY record separately; do not sum/deduplicate them.
+  const greenCollections=[];
+  const matchedMasterKeys=new Set();
 
   (collections||[]).forEach(c=>{
     if(String(c.status||'').trim().toLowerCase()!=='paid')return;
+    if(String(c.collection_type||'').trim().toLowerCase()!=='flat wise 2026 collection')return;
 
-    const collectionType=String(c.collection_type||'').trim().toLowerCase();
-    if(collectionType==='donation')return;
+    const member=c.member_id!=null?memberById.get(String(c.member_id)):null;
+    const block=String(c.block_no??'').trim()||String(member?.block_no??'').trim();
+    const flat=String(c.flat_no??'').trim()||String(member?.flat_no??'').trim();
+    const name=String(member?.name??'').trim()||String(c.notes??'').trim();
 
-    let key=null;
-    let displayBlock=c.block_no||'';
-    let displayFlat=c.flat_no||'';
-    let displayName=c.notes||'';
+    // A collection with Block + Flat can be compared to master.
+    if(block&&flat)matchedMasterKeys.add(flatKey(block,flat));
 
-    if(c.block_no!=null&&String(c.block_no).trim()!==''&&c.flat_no!=null&&String(c.flat_no).trim()!==''){
-      key=flatKey(c.block_no,c.flat_no);
-    }else if(c.member_id!=null){
-      key=memberToFlat.get(String(c.member_id))||null;
-      if(key){
-        const member=(members||[]).find(m=>String(m.id)===String(c.member_id));
-        displayBlock=member?.block_no||'';
-        displayFlat=member?.flat_no||'';
-        displayName=member?.name||c.notes||'';
-      }
-    }
-
-    if(!key)return;
-
-    const amount=Number(c.amount||0);
-    paidRecords.push({c,key,amount,displayBlock,displayFlat,displayName});
-    paidByFlat.set(key,(paidByFlat.get(key)||0)+amount);
+    greenCollections.push({
+      block,
+      flat,
+      name,
+      status:'Paid',
+      amount:Number(c.amount||0)
+    });
   });
 
-  // First put ALL master records into the PDF. Matching paid records are overlaid onto their master row.
-  const rows=(master||[]).map((m,i)=>{
-    const key=flatKey(m.block_no,m.flat_no);
-    const isPaid=paidByFlat.has(key);
-    const amount=paidByFlat.get(key)||0;
-    if(isPaid) mappedCollectionIds.add(key);
-    return [i+1,m.flat_no||'',m.block_no||'',m.owner_name||'',isPaid?'Paid':'',isPaid?amount.toFixed(2):''];
+  // Master section contains ONLY master rows not matched by any green collection row.
+  const yellowMaster=(master||[]).filter(m=>!matchedMasterKeys.has(flatKey(m.block_no,m.flat_no)));
+
+  const rows=[];
+  greenCollections.forEach((r,i)=>{
+    rows.push([i+1,r.flat,r.block,r.name,r.status,r.amount.toFixed(2),'green']);
+  });
+  yellowMaster.forEach((m,i)=>{
+    rows.push(['',m.flat_no||'',m.block_no||'',m.owner_name||'','', '', 'yellow']);
   });
 
-  // Paid non-donation records with valid Block + Flat that do NOT match a master flat
-  // are added at the bottom exactly as they appear in Collection List.
-  const additionalPaid=paidRecords.filter(r=>{
-    const hasBlock=String(r.displayBlock??'').trim()!=='';
-    const hasFlat=String(r.displayFlat??'').trim()!=='';
-    return hasBlock&&hasFlat&&!mappedCollectionIds.has(r.key);
-  });
-
-  additionalPaid.forEach(r=>{
-    rows.push([
-      '',
-      r.displayFlat,
-      r.displayBlock,
-      r.displayName||'',
-      'Paid',
-      r.amount.toFixed(2)
-    ]);
-  });
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   doc.setFontSize(16);
   doc.text('Meena Orchid Festival Collection Status',148.5,14,{align:'center'});
   doc.setFontSize(9);
-  const masterCount=(master||[]).length;
-  const subtitle=additionalPaid.length?`Master Flat List: ${masterCount} flats + ${additionalPaid.length} additional paid record${additionalPaid.length===1?'':'s'}`:`Master Flat List: ${masterCount} flats`;
-  doc.text(subtitle,148.5,20,{align:'center'});
+  doc.text(`Paid Collection Records: ${greenCollections.length} | Unmatched Master Flats: ${yellowMaster.length} | Master Total: ${(master||[]).length}`,148.5,20,{align:'center'});
 
   autoTable(doc,{
     startY:25,
     head:[['Sr No','Flat','Block','Name','Status','Amount']],
-    body:rows,
+    body:rows.map(r=>r.slice(0,6)),
     theme:'grid',
     styles:{fontSize:9,cellPadding:3,valign:'middle'},
     headStyles:{fontStyle:'bold',halign:'center'},
@@ -137,13 +101,13 @@ async function generateCollectionStatusPdf(){
     },
     didParseCell(data){
       if(data.section==='body'){
-        const paid=rows[data.row.index]?.[4]==='Paid';
-        data.cell.styles.fillColor=paid?[198,239,206]:[255,242,204];
+        const kind=rows[data.row.index]?.[6];
+        data.cell.styles.fillColor=kind==='green'?[198,239,206]:[255,242,204];
       }
     }
   });
 
-  doc.save(`Meena_Orchid_Collection_Status_${(master||[]).length}_Flats.pdf`);
+  doc.save(`Meena_Orchid_Collection_Status_${(master||[]).length}_Master_Flats.pdf`);
 }
 
 function ensureButton(){
