@@ -20,27 +20,54 @@ async function generateCollectionStatusPdf(){
 
   // IMPORTANT: flat_owner_master is the source of truth for ALL 137 flats.
   // collections is used only to identify paid flats and their paid amount.
-  const [{data:master,error:masterError},{data:collections,error:collectionsError}]=await Promise.all([
+  // STEP 1: Load every flat from the master table. This is the source of truth for all 137 PDF rows.
+  // STEP 2: Load paid collection records. A collection identifies a flat either directly
+  // (block_no + flat_no) or through member_id, so both methods are handled.
+  const [
+    {data:master,error:masterError},
+    {data:collections,error:collectionsError},
+    {data:members,error:membersError}
+  ]=await Promise.all([
     supabase.from('flat_owner_master').select('id,block_no,flat_no,owner_name').eq('society_id',SOCIETY_ID).order('block_no').order('flat_no'),
-    supabase.from('collections').select('member_id,block_no,flat_no,status,amount').neq('status','Cancelled')
+    supabase.from('collections').select('member_id,block_no,flat_no,status,amount').neq('status','Cancelled'),
+    supabase.from('members').select('id,block_no,flat_no').eq('society_id',SOCIETY_ID)
   ]);
 
   if(masterError){alert('Unable to load the 137-flat master list: '+masterError.message);return;}
   if(collectionsError){alert('Unable to load the collection list: '+collectionsError.message);return;}
+  if(membersError){alert('Unable to load member mapping: '+membersError.message);return;}
 
   const normalise=v=>String(v??'').trim().toLowerCase().replace(/\s+/g,'');
   const flatKey=(block,flat)=>`${normalise(block)}|${normalise(flat)}`;
-  const paidByFlat=new Map();
 
+  // Collection rows often store only member_id. Resolve member_id to its block/flat.
+  const memberToFlat=new Map();
+  (members||[]).forEach(m=>{
+    if(m.id!=null&&m.block_no!=null&&m.flat_no!=null){
+      memberToFlat.set(String(m.id),flatKey(m.block_no,m.flat_no));
+    }
+  });
+
+  // Build the paid list from Collection tab.
+  const paidByFlat=new Map();
   (collections||[]).forEach(c=>{
     if(String(c.status||'').trim().toLowerCase()!=='paid')return;
-    if(c.block_no==null||c.flat_no==null)return;
-    const key=flatKey(c.block_no,c.flat_no);
+
+    let key=null;
+    if(c.block_no!=null&&c.flat_no!=null){
+      key=flatKey(c.block_no,c.flat_no);
+    }else if(c.member_id!=null){
+      key=memberToFlat.get(String(c.member_id))||null;
+    }
+    if(!key)return;
+
     const amount=Number(c.amount||0);
     paidByFlat.set(key,(paidByFlat.get(key)||0)+amount);
   });
 
-  // Every master-table row is printed. Paid = green + Paid + amount. Unpaid = yellow + blank status + blank amount.
+  // First put ALL master records into the PDF.
+  // Then overlay the paid list: paid = green + Paid + amount.
+  // All remaining rows = yellow + blank status + blank amount.
   const rows=(master||[]).map((m,i)=>{
     const key=flatKey(m.block_no,m.flat_no);
     const isPaid=paidByFlat.has(key);
