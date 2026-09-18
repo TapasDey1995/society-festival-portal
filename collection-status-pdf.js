@@ -40,7 +40,7 @@ async function generateCollectionStatusPdf(){
   const normalise=v=>String(v??'').trim().toLowerCase().replace(/\s+/g,'');
   // Master stores blocks as "BLOCK 1"/"BLOCK 2", while Collection/member records use "1"/"2".
   // Normalize both forms to the same block number before matching.
-  const normaliseBlock=v=>{const s=normalise(v); const m=s.match(/(?:block)?(\\d+)/); return m?m[1]:s;};
+  const normaliseBlock=v=>{const s=normalise(v); const m=s.match(/(?:block)?(\d+)/); return m?m[1]:s;};
   const flatKey=(block,flat)=>`${normaliseBlock(block)}|${normalise(flat)}`;
 
   // Collection rows often store only member_id. Resolve member_id to its block/flat.
