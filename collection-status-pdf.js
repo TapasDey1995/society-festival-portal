@@ -12,7 +12,7 @@ async function getAccess(){
   if(!session)return false;
   const {data}=await supabase.from('user_profiles').select('role').eq('id',session.user.id).maybeSingle();
   const role=String(data?.role||'').toLowerCase();
-  return role==='admin'||role==='committee'||session.user.email==='tapas@meenaorchid.local'||session.user.email==='committee@meenaorchid.local';
+  return ['admin','treasurer','committee'].includes(role)||session.user.email==='tapas@meenaorchid.local'||session.user.email==='committee@meenaorchid.local';
 }
 
 async function generateCollectionStatusPdf(){
@@ -29,7 +29,7 @@ async function generateCollectionStatusPdf(){
     {data:members,error:membersError}
   ]=await Promise.all([
     supabase.from('flat_owner_master').select('id,block_no,flat_no,owner_name').eq('society_id',SOCIETY_ID).order('block_no').order('flat_no'),
-    supabase.from('collections').select('member_id,block_no,flat_no,status,amount').neq('status','Cancelled'),
+    supabase.from('collections').select('member_id,block_no,flat_no,status,amount,collection_type').neq('status','Cancelled'),
     supabase.from('members').select('id,block_no,flat_no').eq('society_id',SOCIETY_ID)
   ]);
 
@@ -117,7 +117,8 @@ async function generateCollectionStatusPdf(){
   doc.setFontSize(16);
   doc.text('Meena Orchid Festival Collection Status',148.5,14,{align:'center'});
   doc.setFontSize(9);
-  doc.text(`Master Flat List: 137 flats${additionalPaid.length?` + ` + `${additionalPaid.length} additional paid record${additionalPaid.length===1?'':'s'}`:`}`,148.5,20,{align:'center'});
+  const subtitle=additionalPaid.length?`Master Flat List: 137 flats + ${additionalPaid.length} additional paid record${additionalPaid.length===1?'':'s'}`:'Master Flat List: 137 flats';
+  doc.text(subtitle,148.5,20,{align:'center'});
 
   autoTable(doc,{
     startY:25,
