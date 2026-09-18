@@ -37,36 +37,53 @@ function parseBlockFlat(notes){
 async function downloadCollections(){
   if(!await ensureLoggedIn())return;
   const [{data,error},{data:members,error:memberError},{data:festivals,error:festivalError}]=await Promise.all([
-    supabase.from('collections').select('*').order('collection_date',{ascending:true}).order('created_at',{ascending:true}),
+    supabase.from('collections').select('*').order('collection_date',{ascending:false}).order('created_at',{ascending:false}),
     supabase.from('members').select('id,block_no,flat_no,name').eq('society_id',SOCIETY_ID),
     supabase.from('festivals').select('id,name').eq('society_id',SOCIETY_ID)
   ]);
   if(error){alert('Unable to load collection records: '+error.message);return;}
   if(memberError){alert('Unable to load society members: '+memberError.message);return;}
   if(festivalError){alert('Unable to load society festivals: '+festivalError.message);return;}
-  const mm=new Map((members||[]).map(x=>[x.id,x]));
+
+  const mm=new Map((members||[]).map(x=>[String(x.id),x]));
   const fm=new Map((festivals||[]).map(x=>[x.id,x.name]));
-  // collections has no society_id, so do not discard records merely because member_id is null.
-  // This is important for records entered directly through the portal Add Collection form.
-  const rows=[['Sr No','Date','Festival','Block','Flat','Name','Amount','Payment Mode','Status','Receipt No','Transaction ID','Collection Type','Receipt / Attached File','Receipt Download']];
+  const search=($('collectionSearch')?.value||'').trim().toLowerCase();
+  const festivalFilter=$('collectionFestivalFilter')?.value||'';
+  const typeFilter=$('collectionTypeFilter')?.value||'';
+  const modeFilter=$('collectionModeFilter')?.value||'';
+  const statusFilter=$('collectionStatusFilter')?.value||'';
+
+  const source=(data||[]).map(x=>{
+    const member=mm.get(String(x.member_id));
+    const block=member?.block_no||x.block_no||parseBlockFlat(x.notes).block||'';
+    const flat=member?.flat_no||x.flat_no||parseBlockFlat(x.notes).flat||'';
+    const name=x.notes||member?.name||parseBlockFlat(x.notes).name||'';
+    return {...x,_block:block,_flat:flat,_name:name,_festival:fm.get(x.festival_id)||''};
+  }).filter(x=>{
+    const text=`${x._festival} ${x._block} ${x._flat} ${x._name} ${x.receipt_no||''}`.toLowerCase();
+    return (!search||text.includes(search))
+      &&(!festivalFilter||x.festival_id===festivalFilter)
+      &&(!typeFilter||x.collection_type===typeFilter)
+      &&(!modeFilter||x.payment_mode===modeFilter)
+      &&(!statusFilter||x.status===statusFilter);
+  });
+
+  const rows=[['Sr No','Date','Block','Flat','Name','Amount','Payment Mode','Status','Receipt No','Transaction ID','Receipt / Attached File','Collection Type','Receipt Download']];
   const links=[];
-  (data||[]).forEach((x,i)=>{
-    const parsed=parseBlockFlat(x.notes);
-    const member=mm.get(x.member_id);
-    const block=member?.block_no||x.block_no||parsed.block||'';
-    const flat=member?.flat_no||x.flat_no||parsed.flat||'';
-    const name=member?.name||parsed.name||'';
+  source.forEach((x,i)=>{
     const receipt=x.receipt_url||x.file_upload_url||'';
     const download=x.receipt_download_url||receipt;
-    rows.push([i+1,date(x.collection_date),fm.get(x.festival_id)||'',block,flat,name,amount(x.amount),x.payment_mode||'',x.status||'',x.receipt_no||'',x.transaction_id||'',x.collection_type||'',receipt?'Open attached file':'',download?'Download file':'']);
+    rows.push([i+1,date(x.collection_date),x._block,x._flat,x._name,amount(x.amount),x.payment_mode||'',x.status||'',x.receipt_no||'',x.transaction_id||'',receipt?'Open attached file':'—',x.collection_type||'',download?'Download':'—']);
     links.push({row:i+2,receipt,download});
   });
-  if(rows.length===1)rows.push(['','','No collection records','','','','','','','','','','','']);
+  if(rows.length===1)rows.push(['','','No collections match the current filters','','','','','','','','','','']);
   const ws=XLSX.utils.aoa_to_sheet(rows);
-  styleWorkbook(ws,[8,14,22,12,12,30,16,18,14,18,24,28,28,20]);
-  links.forEach(x=>{setHyperlink(ws,`M${x.row}`,x.receipt,'Open attached file');setHyperlink(ws,`N${x.row}`,x.download,'Download file');});
+  styleWorkbook(ws,[8,14,12,12,30,16,18,14,18,24,28,28,20]);
+  links.forEach(x=>{setHyperlink(ws,`K${x.row}`,x.receipt,'Open attached file');setHyperlink(ws,`M${x.row}`,x.download,'Download file');});
   ws['!freeze']={xSplit:0,ySplit:1};
-  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'All Collections');XLSX.writeFile(wb,'Meena_Orchid_All_Collections.xlsx');
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Collections');
+  XLSX.writeFile(wb,'Meena_Orchid_Collections.xlsx');
 }
 
 function buildExpenseSheet(name,source){
