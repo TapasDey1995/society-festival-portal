@@ -77,7 +77,7 @@ async function generateCollectionStatusPdf(){
     rows.push([i+1,r.flat,r.block,r.name,r.status,r.amount.toFixed(2),'green']);
   });
   yellowMaster.forEach((m,i)=>{
-    rows.push(['',m.flat_no||'',m.block_no||'',m.owner_name||'','', '', 'yellow']);
+    rows.push([greenCollections.length+i+1,m.flat_no||'',m.block_no||'',m.owner_name||'','', '', 'yellow']);
   });
 
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
