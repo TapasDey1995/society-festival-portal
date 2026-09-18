@@ -51,43 +51,73 @@ async function generateCollectionStatusPdf(){
     }
   });
 
-  // Build the paid list from Collection tab.
+  // Build paid records for flat-wise collection only.
+  // Donations/sponsorships/other records are excluded completely.
+  const paidRecords=[];
   const paidByFlat=new Map();
+  const mappedCollectionIds=new Set();
+
   (collections||[]).forEach(c=>{
     if(String(c.status||'').trim().toLowerCase()!=='paid')return;
 
+    const collectionType=String(c.collection_type||'').trim().toLowerCase();
+    if(collectionType!=='flat wise 2026 collection')return;
+
     let key=null;
-    if(c.block_no!=null&&c.flat_no!=null){
+    let displayBlock=c.block_no||'';
+    let displayFlat=c.flat_no||'';
+
+    if(c.block_no!=null&&String(c.block_no).trim()!==''&&c.flat_no!=null&&String(c.flat_no).trim()!==''){
       key=flatKey(c.block_no,c.flat_no);
     }else if(c.member_id!=null){
       key=memberToFlat.get(String(c.member_id))||null;
+      if(key){
+        const member=(members||[]).find(m=>String(m.id)===String(c.member_id));
+        displayBlock=member?.block_no||'';
+        displayFlat=member?.flat_no||'';
+      }
     }
+
     if(!key)return;
 
     const amount=Number(c.amount||0);
+    paidRecords.push({c,key,amount,displayBlock,displayFlat});
     paidByFlat.set(key,(paidByFlat.get(key)||0)+amount);
   });
 
-  // First put ALL master records into the PDF.
-  // Then overlay the paid list: paid = green + Paid + amount.
-  // All remaining rows = yellow + blank status + blank amount.
+  // First put ALL 137 master records into the PDF.
+  // Matching paid records are overlaid onto their master row.
   const rows=(master||[]).map((m,i)=>{
     const key=flatKey(m.block_no,m.flat_no);
     const isPaid=paidByFlat.has(key);
     const amount=paidByFlat.get(key)||0;
+    if(isPaid) mappedCollectionIds.add(key);
     return [i+1,m.flat_no||'',m.block_no||'',m.owner_name||'',isPaid?'Paid':'',isPaid?amount.toFixed(2):''];
   });
 
-  if(rows.length!==137){
-    alert(`Master flat list returned ${rows.length} records. Expected 137. PDF was not generated so incomplete data is not shown.`);
-    return;
-  }
+  // Paid flat-wise records with valid Block + Flat that do NOT match a master flat
+  // are added at the bottom. This includes cases such as tenant/alternate records.
+  const additionalPaid=paidRecords.filter(r=>{
+    const hasBlock=String(r.displayBlock??'').trim()!=='';
+    const hasFlat=String(r.displayFlat??'').trim()!=='';
+    return hasBlock&&hasFlat&&!mappedCollectionIds.has(r.key);
+  });
 
+  additionalPaid.forEach(r=>{
+    rows.push([
+      '',
+      r.displayFlat,
+      r.displayBlock,
+      'Additional Paid Record',
+      'Paid',
+      r.amount.toFixed(2)
+    ]);
+  });
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   doc.setFontSize(16);
   doc.text('Meena Orchid Festival Collection Status',148.5,14,{align:'center'});
   doc.setFontSize(9);
-  doc.text('Master Flat List: 137 flats',148.5,20,{align:'center'});
+  doc.text(`Master Flat List: 137 flats${additionalPaid.length?` + ` + `${additionalPaid.length} additional paid record${additionalPaid.length===1?'':'s'}`:`}`,148.5,20,{align:'center'});
 
   autoTable(doc,{
     startY:25,
