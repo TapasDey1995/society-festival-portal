@@ -24,7 +24,7 @@ function addStyles(){
 }
 
 async function updateDashboardCollectionBreakup(){
-  const {data,error}=await supabase.from('collections').select('amount,status,collection_type');
+  const {data,error}=await supabase.from('collections').select('amount,status,collection_type,notes');
   if(error){console.error('Dashboard collection breakup load error:',error);return;}
 
   const active=(data||[]).filter(x=>x.status!=='Cancelled');
