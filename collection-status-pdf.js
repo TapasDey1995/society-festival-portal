@@ -48,7 +48,9 @@ async function generateCollectionStatusPdf(){
 
   (collections||[]).forEach(c=>{
     if(String(c.status||'').trim().toLowerCase()!=='paid')return;
-    if(String(c.collection_type||'').trim().toLowerCase()!=='flat wise 2026 collection')return;
+    const collectionType=String(c.collection_type||'').trim().toLowerCase();
+    if(collectionType==='last year carry forward')return;
+    if(collectionType!=='flat wise 2026 collection')return;
 
     const member=c.member_id!=null?memberById.get(String(c.member_id)):null;
     const block=String(c.block_no??'').trim()||String(member?.block_no??'').trim();
