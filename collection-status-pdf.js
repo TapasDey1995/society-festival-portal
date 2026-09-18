@@ -55,7 +55,7 @@ async function generateCollectionStatusPdf(){
     const member=c.member_id!=null?memberById.get(String(c.member_id)):null;
     const block=String(c.block_no??'').trim()||String(member?.block_no??'').trim();
     const flat=String(c.flat_no??'').trim()||String(member?.flat_no??'').trim();
-    const name=String(member?.name??'').trim()||String(c.notes??'').trim();
+    const name=String(c.notes??'').trim()||String(member?.name??'').trim();
 
     // A collection with Block + Flat can be compared to master.
     if(block&&flat)matchedMasterKeys.add(flatKey(block,flat));
