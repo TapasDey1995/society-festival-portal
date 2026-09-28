@@ -34,8 +34,18 @@ async function uploadBill(input){
     const url=data.publicUrl;
     const {error:updateError}=await supabase.from('expenses').update({bill_url:url,updated_at:new Date().toISOString()}).eq('id',id);
     if(updateError)throw updateError;
-    if(window.refreshAuth)await window.refreshAuth();
-    if(window.location)window.location.reload();
+    const cell=input.closest('td');
+    if(cell){
+      const link=cell.querySelector('a');
+      if(link)link.href=url;
+      else{
+        const uploadLabel=cell.querySelector('.expense-upload-label');
+        if(uploadLabel)uploadLabel.insertAdjacentHTML('beforebegin',`<a href="${safeUrl(url)}" target="_blank" rel="noopener">View file</a><br/>`);
+      }
+    }
+    if(label?.querySelector('.expense-upload-text'))label.querySelector('.expense-upload-text').textContent='Replace bill';
+    input.value='';
+    input.disabled=false;
   }catch(error){
     console.error('Expense bill upload failed:',error);
     alert('Bill upload failed: '+(error?.message||String(error)));
@@ -71,6 +81,5 @@ function init(){
   const container=document.getElementById('expenseGroups');
   if(container)observer.observe(container,{childList:true,subtree:true});
   decorateExpenseRows();
-  import('./export-reports.js?v=20260914');
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
