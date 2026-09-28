@@ -53,10 +53,20 @@ function decorateReceiptCells(){
         const url=await uploadReceipt(file);
         const {error}=await supabase.from('collections').update({file_upload_url:url,receipt_url:url,receipt_download_url:url,updated_at:new Date().toISOString()}).eq('id',input.dataset.id);
         if(error)throw error;
-        if(status)status.textContent='Saved. Refreshing...';
-        window.location.reload();
+        const cell=input.closest('td');
+        const wrap=input.closest('.receipt-upload-wrap');
+        if(cell){
+          const link=cell.querySelector('a');
+          if(link){link.href=url;link.textContent='View receipt';}
+          else if(wrap){wrap.insertAdjacentHTML('beforebegin',`<a href="${esc(url)}" target="_blank" rel="noopener">View receipt</a><br/>`);}
+        }
+        if(status)status.textContent='Saved.';
+        input.value='';
+        input.disabled=false;
       }catch(error){
+        console.error('Collection receipt upload failed:',error);
         if(status)status.textContent=error?.message||'Upload failed.';
+        input.value='';
         input.disabled=false;
       }
     };
