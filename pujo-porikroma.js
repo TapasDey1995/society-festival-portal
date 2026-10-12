@@ -8,7 +8,7 @@ const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
 const $=id=>document.getElementById(id);
 
 function esc(v){return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[c]));}
-function isStaff(profile){return !!profile&&['admin','treasurer','committee'].includes(profile.role);}
+function isStaff(profile){return !!profile&&['admin','treasurer','committee'].includes(String(profile.role||'').trim().toLowerCase());}
 
 async function loadGallery(){
   const {data,error}=await supabase.from('pujo_porikroma').select('*').eq('society_id',SOCIETY_ID).order('created_at',{ascending:false});
