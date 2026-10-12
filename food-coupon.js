@@ -36,28 +36,28 @@ async function loadSettings(){
   currentSettings=data||{society_id:SOCIETY_ID,total_collection:0,collection_pdf_url:null};
   $('foodCouponTotal').textContent=money(currentSettings.total_collection);
   $('foodCouponTotalInput').value=Number(currentSettings.total_collection||0).toFixed(2);
-  const root=$('foodCouponPdfViewer');
-  if(currentSettings.collection_pdf_url){
-    const url=esc(currentSettings.collection_pdf_url);
+  const root=$('foodCouponImageViewer');
+  if(currentSettings.collection_image_url){
+    const url=esc(currentSettings.collection_image_url);
     root.classList.remove('empty-state');
-    root.innerHTML=`<a href="${url}" target="_blank" rel="noopener">Open / download collection PDF (${esc(currentSettings.collection_pdf_name||'Collection statement.pdf')})</a><iframe src="${url}#toolbar=1&navpanes=0" title="Food coupon collection PDF" loading="lazy"></iframe>`;
-  }else{root.classList.add('empty-state');root.textContent='No collection PDF uploaded yet.';}
+    root.innerHTML=`<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="Food coupon collection statement" loading="lazy"/></a><p class="muted">${esc(currentSettings.collection_image_name||'Collection statement image')}</p>`;
+  }else{root.classList.add('empty-state');root.textContent='No collection image uploaded yet.';}
 }
 async function saveSettings(event){
   event.preventDefault();
   if(!staff)return;
   const message=$('foodCouponSettingsMessage'),button=$('foodCouponSettingsForm').querySelector('button[type=submit]');
-  const total=Number($('foodCouponTotalInput').value),file=$('foodCouponPdf').files?.[0];
+  const total=Number($('foodCouponTotalInput').value),file=$('foodCouponCollectionImage').files?.[0];
   if(!Number.isFinite(total)||total<0){message.textContent='Enter a valid non-negative total collection.';return;}
-  if(file&&(!isAllowedFile(file,['application/pdf']))){message.textContent='Please choose a PDF file up to 10 MB.';return;}
+  if(file&&(!isAllowedFile(file,['image/jpeg','image/png','image/webp']))){message.textContent='Please choose a JPG, PNG or WEBP image up to 10 MB.';return;}
   button.disabled=true;message.textContent='Saving collection details…';
   try{
-    let url=currentSettings?.collection_pdf_url||null,name=currentSettings?.collection_pdf_name||null;
-    if(file){url=await upload(file,'collection');name=file.name;}
-    const payload={society_id:SOCIETY_ID,total_collection:total,collection_pdf_url:url,collection_pdf_name:name,updated_at:new Date().toISOString()};
+    let url=currentSettings?.collection_image_url||null,name=currentSettings?.collection_image_name||null;
+    if(file){url=await upload(file,'collection-images');name=file.name;}
+    const payload={society_id:SOCIETY_ID,total_collection:total,collection_image_url:url,collection_image_name:name,updated_at:new Date().toISOString()};
     const {error}=await supabase.from('food_coupon_settings').upsert(payload,{onConflict:'society_id'});
     if(error)throw error;
-    $('foodCouponPdf').value='';message.textContent='Collection details saved.';await loadSettings();
+    $('foodCouponCollectionImage').value='';message.textContent='Collection image and total saved.';await loadSettings();
   }catch(error){console.error('Food coupon settings save failed',error);message.textContent='Save failed: '+(error?.message||String(error));}
   finally{button.disabled=false;}
 }
