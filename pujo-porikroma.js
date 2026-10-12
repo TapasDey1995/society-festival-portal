@@ -16,7 +16,7 @@ async function loadGallery(){
   if(!root)return;
   if(error){root.innerHTML='<p class="muted">Unable to load gallery.</p>';console.error(error);return;}
   if(!(data||[]).length){root.innerHTML='<div class="porikroma-empty">No gallery posts added yet.</div>';return;}
-  root.innerHTML=(data||[]).map(item=>{const images=Array.isArray(item.image_urls)&&item.image_urls.length?item.image_urls:(item.image_url?[item.image_url]:[]);return `<article class="porikroma-frame"><h3>${esc(item.header)}</h3>${item.body_text?'<p class="porikroma-body">'+esc(item.body_text).replace(/\n/g,'<br>')+'</p>':''}<div class="porikroma-grid">${images.map((url,i)=>`<a class="porikroma-photo" href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="${esc(item.header)} photo ${i+1}" loading="lazy"/></a>`).join('')}</div></article>`;}).join('');
+  root.innerHTML=(data||[]).map(item=>{const images=Array.isArray(item.image_urls)&&item.image_urls.length?item.image_urls:(item.image_url?[item.image_url]:[]);const yt=String(item.youtube_url||'').trim();const ytId=(yt.match(/(?:youtube\\.com\\/(?:watch\\?.*v=|embed\/|shorts\/)|youtu\\.be\/)([A-Za-z0-9_-]{11})/)||[])[1];const media=item.video_url?`<div class="porikroma-video"><video controls playsinline preload="metadata" src="${esc(item.video_url)}"></video></div>`:ytId?`<div class="porikroma-video"><iframe src="https://www.youtube-nocookie.com/embed/${ytId}" title="${esc(item.header)} video" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>`:'';return `<article class="porikroma-frame"><h3>${esc(item.header)}</h3>${item.body_text?'<p class="porikroma-body">'+esc(item.body_text).replace(/\n/g,'<br>')+'</p>':''}${media}<div class="porikroma-grid">${images.map((url,i)=>`<a class="porikroma-photo" href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="${esc(item.header)} photo ${i+1}" loading="lazy"/></a>`).join('')}</div></article>`;}).join('');
 }
 
 async function getProfile(){
@@ -135,7 +135,14 @@ async function init(){
       const header=$('porikromaHeader').value.trim();
       const bodyText=$('porikromaBodyText').value.trim();
       const files=Array.from($('porikromaImage').files||[]);
+      const videoFile=$('porikromaVideo').files?.[0]||null;
+      const youtubeUrl=$('porikromaYoutubeUrl').value.trim();
       if(!header||!bodyText||!files.length){if(message)message.textContent='Please enter a header, body text and choose one or more images.';return;}
+      if(videoFile&&youtubeUrl){if(message)message.textContent='Choose either a video file or a YouTube link, not both.';return;}
+      const youtubePattern=/^(https?:\\/\\/)?(www\\.)?(youtube\\.com\\/(watch\\?.*v=|embed\\/|shorts\\/)|youtu\\.be\\/)[A-Za-z0-9_-]{11}([?&/].*)?$/i;
+      if(youtubeUrl&&!youtubePattern.test(youtubeUrl)){if(message)message.textContent='Please enter a valid YouTube video URL.';return;}
+      if(videoFile&&!(videoFile.type.startsWith('video/')&&['video/mp4','video/webm','video/ogg','video/quicktime'].includes(videoFile.type))){if(message)message.textContent='Please upload an MP4, WEBM, OGG or MOV video.';return;}
+      if(videoFile&&videoFile.size>10*1024*1024){if(message)message.textContent='Video must be 10 MB or smaller.';return;}
       const allowedTypes=['image/jpeg','image/png','image/webp'];
       if(files.some(file=>!allowedTypes.includes(file.type))){if(message)message.textContent='Please upload JPG, PNG or WEBP images only.';return;}
       if(files.some(file=>file.size>10*1024*1024)){if(message)message.textContent='Each image must be 10 MB or smaller.';return;}
@@ -149,10 +156,19 @@ async function init(){
         if(upload.error){if(message)message.textContent='Upload failed for '+file.name+': '+upload.error.message;return;}
         imageUrls.push(supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl);
       }
-      const {error}=await supabase.from('pujo_porikroma').insert({society_id:SOCIETY_ID,header,body_text:bodyText,image_url:imageUrls[0],image_urls:imageUrls});
+      let videoUrl=null;
+      if(videoFile){
+        if(message)message.textContent='Uploading video...';
+        const safeVideo=videoFile.name.replace(/[^a-zA-Z0-9._-]+/g,'-').slice(0,120);
+        const videoPath=`porikroma/videos/${Date.now()}-${crypto.randomUUID()}-${safeVideo}`;
+        const videoUpload=await supabase.storage.from(BUCKET).upload(videoPath,videoFile,{cacheControl:'3600',upsert:false,contentType:videoFile.type});
+        if(videoUpload.error){if(message)message.textContent='Video upload failed: '+videoUpload.error.message;return;}
+        videoUrl=supabase.storage.from(BUCKET).getPublicUrl(videoPath).data.publicUrl;
+      }
+      const {error}=await supabase.from('pujo_porikroma').insert({society_id:SOCIETY_ID,header,body_text:bodyText,image_url:imageUrls[0],image_urls:imageUrls,video_url:videoUrl,youtube_url:youtubeUrl||null});
       if(error){if(message)message.textContent='Could not save gallery post: '+error.message;return;}
       form.reset();
-      if(message)message.textContent='Image added to Pujo Porikroma.';
+      if(message)message.textContent='Porikroma post added successfully.';
       await loadGallery();
     });
   }
