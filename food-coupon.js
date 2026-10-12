@@ -46,7 +46,7 @@ async function loadSettings(){
 async function saveSettings(event){
   event.preventDefault();
   if(!staff)return;
-  const message=$('foodCouponSettingsMessage'),button=$('foodCouponSettingsForm').querySelector('button[type=submit');
+  const message=$('foodCouponSettingsMessage'),button=$('foodCouponSettingsForm').querySelector('button[type=submit]');
   const total=Number($('foodCouponTotalInput').value),file=$('foodCouponPdf').files?.[0];
   if(!Number.isFinite(total)||total<0){message.textContent='Enter a valid non-negative total collection.';return;}
   if(file&&(!isAllowedFile(file,['application/pdf']))){message.textContent='Please choose a PDF file up to 10 MB.';return;}
