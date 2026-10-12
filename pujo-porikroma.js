@@ -15,14 +15,8 @@ async function loadGallery(){
   const root=$('porikromaGallery');
   if(!root)return;
   if(error){root.innerHTML='<p class="muted">Unable to load gallery.</p>';console.error(error);return;}
-  const groups=[];
-  const map=new Map();
-  (data||[]).forEach(item=>{
-    if(!map.has(item.header)){const group={header:item.header,images:[]};map.set(item.header,group);groups.push(group);}
-    map.get(item.header).images.push(item);
-  });
-  if(!groups.length){root.innerHTML='<div class="porikroma-empty">No gallery images added yet.</div>';return;}
-  root.innerHTML=groups.map(group=>`<section class="porikroma-frame"><h3>${esc(group.header)}</h3><div class="porikroma-grid">${group.images.map(item=>`<a class="porikroma-photo" href="${esc(item.image_url)}" target="_blank" rel="noopener"><img src="${esc(item.image_url)}" alt="${esc(group.header)}" loading="lazy"/></a>`).join('')}</div></section>`).join('');
+  if(!(data||[]).length){root.innerHTML='<div class="porikroma-empty">No gallery posts added yet.</div>';return;}
+  root.innerHTML=(data||[]).map(item=>`<article class="porikroma-frame"><h3>${esc(item.header)}</h3>${item.body_text?'<p class="porikroma-body">'+esc(item.body_text).replace(/\n/g,'<br>')+'</p>':''}<a class="porikroma-photo" href="${esc(item.image_url)}" target="_blank" rel="noopener"><img src="${esc(item.image_url)}" alt="${esc(item.header)}" loading="lazy"/></a></article>`).join('');
 }
 
 async function getProfile(){
@@ -139,8 +133,9 @@ async function init(){
       const profile=await getProfile();
       if(!isStaff(profile)){if(message)message.textContent='Committee login required.';return;}
       const header=$('porikromaHeader').value.trim();
+      const bodyText=$('porikromaBodyText').value.trim();
       const file=$('porikromaImage').files?.[0];
-      if(!header||!file){if(message)message.textContent='Please enter a header and choose an image.';return;}
+      if(!header||!bodyText||!file){if(message)message.textContent='Please enter a header, body text and choose an image.';return;}
       if(!['image/jpeg','image/png','image/webp'].includes(file.type)){if(message)message.textContent='Please upload JPG, PNG or WEBP image.';return;}
       if(file.size>10*1024*1024){if(message)message.textContent='Image must be 10 MB or smaller.';return;}
       const safe=file.name.replace(/[^a-zA-Z0-9._-]+/g,'-').slice(0,120);
@@ -149,7 +144,7 @@ async function init(){
       const upload=await supabase.storage.from(BUCKET).upload(path,file,{cacheControl:'3600',upsert:false,contentType:file.type});
       if(upload.error){if(message)message.textContent='Upload failed: '+upload.error.message;return;}
       const imageUrl=supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
-      const {error}=await supabase.from('pujo_porikroma').insert({society_id:SOCIETY_ID,header,image_url:imageUrl});
+      const {error}=await supabase.from('pujo_porikroma').insert({society_id:SOCIETY_ID,header,body_text:bodyText,image_url:imageUrl});
       if(error){if(message)message.textContent='Could not save gallery image: '+error.message;return;}
       form.reset();
       if(message)message.textContent='Image added to Pujo Porikroma.';
